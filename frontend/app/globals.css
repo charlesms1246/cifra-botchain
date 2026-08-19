@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+/* Cifra design system — warm terracotta on near-black. Original theme. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-destructive: var(--destructive);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-malinton), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+}
+
+:root {
+  --radius: 1rem;
+
+  /* terracotta brand ramp (matches the Kantoku hero gradient) */
+  --brand: #de7356;
+  --brand-600: #b14e30;
+  --brand-300: #f0a488;
+
+  --background: oklch(0.05 0 0);
+  --foreground: oklch(0.985 0 0);
+
+  --card: oklch(0.12 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.12 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+
+  --primary: #de7356;
+  --primary-foreground: oklch(0.145 0 0);
+
+  --secondary: oklch(0.85 0.05 80);
+  --secondary-foreground: oklch(0.145 0 0);
+
+  --muted: oklch(0.2 0 0);
+  --muted-foreground: oklch(0.7 0 0);
+
+  --accent: #de7356;
+  --accent-foreground: oklch(0.985 0 0);
+
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: #de7356;
+
+  --success: #5bbf8f;
+  --warning: oklch(0.828 0.189 84.429);
+  --destructive: oklch(0.6 0.25 25);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    -webkit-font-smoothing: antialiased;
+  }
+  /* warm ambient glow behind the app */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(60rem 40rem at 15% -10%, rgba(222, 115, 86, 0.16), transparent 60%),
+      radial-gradient(50rem 40rem at 100% 0%, rgba(222, 115, 86, 0.08), transparent 55%);
+  }
+}
+
+@keyframes cifra-shine {
+  0% { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+.cifra-shine {
+  background: linear-gradient(90deg, var(--brand-300) 0%, #ffffff 50%, var(--brand-300) 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: cifra-shine 5s linear infinite;
+}
+
+@keyframes cifra-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+.cifra-float { animation: cifra-float 6s ease-in-out infinite; }
+
+.cifra-grid {
+  background-image:
+    linear-gradient(rgba(246, 241, 238, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(246, 241, 238, 0.04) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(to bottom, white, transparent 75%);
+}
