@@ -8,14 +8,15 @@ import {
     CifraInvoiceRegistry,
     CifraAttestationNFT,
     MockAsset,
-    MockFdcVerifier,
 } from "../typechain-types";
 
 const abi = ethers.AbiCoder.defaultAbiCoder();
 const SCORE_RESULT_DOMAIN = ethers.encodeBytes32String("CIFRA_SCORE_RESULT");
 const BPS = 10000n;
 const GRACE = 3 * 24 * 3600;
-const RECEIVER_HASH = ethers.keccak256(ethers.toUtf8Bytes("rCifraProtocolXRPL"));
+
+const Settled = 2;
+const Defaulted = 3;
 
 async function signResult(wallet: any, resultData: string, actionId: string, tag: string, status: number, chainId: bigint) {
     const resultHash = ethers.solidityPackedKeccak256(
@@ -26,70 +27,15 @@ async function signResult(wallet: any, resultData: string, actionId: string, tag
     return wallet.signMessage(ethers.getBytes(payload));
 }
 
-// Build an IPayment.Proof with the fields the settlement contract checks.
-function paymentProof(opts: {
-    reference: string;
-    receiver: string;
-    receivedAmount: bigint;
-    status: number;
-}) {
-    return {
-        merkleProof: [] as string[],
-        data: {
-            attestationType: ethers.ZeroHash,
-            sourceId: ethers.ZeroHash,
-            votingRound: 0,
-            lowestUsedTimestamp: 0,
-            requestBody: { transactionId: ethers.ZeroHash, inUtxo: 0, utxo: 0 },
-            responseBody: {
-                blockNumber: 0,
-                blockTimestamp: 0,
-                sourceAddressHash: ethers.ZeroHash,
-                sourceAddressesRoot: ethers.ZeroHash,
-                receivingAddressHash: opts.receiver,
-                intendedReceivingAddressHash: ethers.ZeroHash,
-                spentAmount: 0,
-                intendedSpentAmount: 0,
-                receivedAmount: opts.receivedAmount,
-                intendedReceivedAmount: 0,
-                standardPaymentReference: opts.reference,
-                oneToOne: true,
-                status: opts.status,
-            },
-        },
-    };
-}
-
-// Build an IReferencedPaymentNonexistence.Proof with the fields the settlement contract checks.
-function nonexistenceProof(opts: { reference: string; destination: string; amount: bigint; deadlineTs: number }) {
-    return {
-        merkleProof: [] as string[],
-        data: {
-            attestationType: ethers.ZeroHash,
-            sourceId: ethers.ZeroHash,
-            votingRound: 0,
-            lowestUsedTimestamp: 0,
-            requestBody: {
-                minimalBlockNumber: 0,
-                deadlineBlockNumber: 0,
-                deadlineTimestamp: opts.deadlineTs,
-                destinationAddressHash: opts.destination,
-                amount: opts.amount,
-                standardPaymentReference: opts.reference,
-                checkSourceAddresses: false,
-                sourceAddressesRoot: ethers.ZeroHash,
-            },
-            responseBody: { minimalBlockTimestamp: 0, firstOverflowBlockNumber: 0, firstOverflowBlockTimestamp: 0 },
-        },
-    };
-}
-
+// Settlement is now oracle-free: the buyer pays the book's own ERC-20 and the contract observes
+// the payment directly. There is no proof, no reserve, and default is a timestamp comparison.
+// See claude-docs/DECISIONS.md D5.
 describe("CifraSettlement", () => {
     let asset: MockAsset, registry: CifraInvoiceRegistry, attestation: CifraAttestationNFT;
     let controller: CifraTrancheController, senior: CifraTrancheVault, junior: CifraTrancheVault;
-    let verifier: MockFdcVerifier, settlement: CifraSettlement;
-    let owner: any, keeper: any, funder: any, supplier: any;
-    let tee: any, chainId: bigint;
+    let settlement: CifraSettlement;
+    let owner: any, keeper: any, funder: any, supplier: any, buyer: any, stranger: any;
+    let scorer: any, chainId: bigint;
     let invoiceId: string, dueDate: number;
 
     const buyerCommitment = ethers.keccak256(ethers.toUtf8Bytes("buyer:acme"));
@@ -101,28 +47,26 @@ describe("CifraSettlement", () => {
     const tag = "threshold";
 
     beforeEach(async () => {
-        [owner, keeper, funder, supplier] = await ethers.getSigners();
-        tee = ethers.Wallet.createRandom();
+        [owner, keeper, funder, supplier, buyer, stranger] = await ethers.getSigners();
+        scorer = ethers.Wallet.createRandom();
         chainId = (await ethers.provider.getNetwork()).chainId;
 
         asset = (await (await ethers.getContractFactory("MockAsset")).deploy("Mock USDT", "USDT", 6)) as unknown as MockAsset;
         registry = (await (await ethers.getContractFactory("CifraInvoiceRegistry")).deploy()) as unknown as CifraInvoiceRegistry;
         attestation = (await (await ethers.getContractFactory("CifraAttestationNFT")).deploy(
-            "Cifra Attestation", "CIFRA-ATT", tee.address, await registry.getAddress()
+            "Cifra Attestation", "CIFRA-ATT", scorer.address, await registry.getAddress()
         )) as unknown as CifraAttestationNFT;
         controller = (await (await ethers.getContractFactory("CifraTrancheController")).deploy(
             await asset.getAddress(), await registry.getAddress(), await attestation.getAddress()
         )) as unknown as CifraTrancheController;
         senior = (await (await ethers.getContractFactory("CifraTrancheVault")).deploy(
-            await asset.getAddress(), await controller.getAddress(), "Cifra Senior", "cFXRP-S"
+            await asset.getAddress(), await controller.getAddress(), "Cifra Senior USDT", "cUSDT-S"
         )) as unknown as CifraTrancheVault;
         junior = (await (await ethers.getContractFactory("CifraTrancheVault")).deploy(
-            await asset.getAddress(), await controller.getAddress(), "Cifra Junior", "cFXRP-J"
+            await asset.getAddress(), await controller.getAddress(), "Cifra Junior USDT", "cUSDT-J"
         )) as unknown as CifraTrancheVault;
-        verifier = (await (await ethers.getContractFactory("MockFdcVerifier")).deploy()) as unknown as MockFdcVerifier;
         settlement = (await (await ethers.getContractFactory("CifraSettlement")).deploy(
-            await registry.getAddress(), await controller.getAddress(), await asset.getAddress(),
-            await verifier.getAddress(), RECEIVER_HASH, GRACE
+            await controller.getAddress(), GRACE
         )) as unknown as CifraSettlement;
 
         await registry.connect(owner).setStatusUpdater(await controller.getAddress(), true);
@@ -141,133 +85,267 @@ describe("CifraSettlement", () => {
         const ref = ethers.keccak256(ethers.toUtf8Bytes("INV-SET-1"));
         await registry.connect(supplier).registerInvoice(buyerCommitment, faceAmount, dueDate, ref);
         invoiceId = await registry.computeInvoiceId(supplier.address, buyerCommitment, faceAmount, dueDate, ref);
-        const resultData = abi.encode(["bytes32", "bytes32", "uint256", "uint256"], [invoiceId, ethers.encodeBytes32String("A"), 9900, discountBps]);
-        const sig = await signResult(tee, resultData, actionId, tag, 1, chainId);
-        await attestation.attest(invoiceId, resultData, actionId, tag, 1, sig);
+        const resultData = abi.encode(
+            ["bytes32", "bytes32", "uint256", "uint256"],
+            [invoiceId, ethers.encodeBytes32String("A"), 9900, discountBps]
+        );
+        await attestation.attest(invoiceId, resultData, actionId, tag, 1, await signResult(scorer, resultData, actionId, tag, 1, chainId));
         await controller.connect(keeper).fundInvoice(invoiceId);
 
-        // The settlement contract holds ASSET representing the buyer's converted payment.
-        await asset.mint(await settlement.getAddress(), faceAmount);
+        // The buyer holds the face amount they owe. No reserve is pre-funded anywhere — that
+        // whole mechanism is gone.
+        await asset.mint(buyer.address, faceAmount);
     });
 
-    describe("settle", () => {
-        it("settles a funded invoice from a verified payment and repays the vault", async () => {
-            const proof = paymentProof({ reference: invoiceId, receiver: RECEIVER_HASH, receivedAmount: faceAmount, status: 0 });
-            await expect(settlement.settle(invoiceId, proof))
+    describe("deployment", () => {
+        it("reads the settlement asset from the controller so they cannot disagree", async () => {
+            expect(await settlement.ASSET()).to.equal(await asset.getAddress());
+            expect(await settlement.CONTROLLER()).to.equal(await controller.getAddress());
+            expect(await settlement.GRACE_PERIOD()).to.equal(GRACE);
+        });
+
+        it("rejects a controller with no code", async () => {
+            const factory = await ethers.getContractFactory("CifraSettlement");
+            await expect(factory.deploy(ethers.ZeroAddress, GRACE)).to.be.revertedWithCustomError(settlement, "ZeroAddress");
+            await expect(factory.deploy(stranger.address, GRACE)).to.be.reverted;
+        });
+    });
+
+    describe("payInvoice", () => {
+        it("settles a funded invoice from a real on-chain payment and repays the pool", async () => {
+            await asset.connect(buyer).approve(await settlement.getAddress(), faceAmount);
+
+            await expect(settlement.connect(buyer).payInvoice(invoiceId))
                 .to.emit(settlement, "Settled")
-                .withArgs(invoiceId, faceAmount, invoiceId);
+                .withArgs(invoiceId, buyer.address, faceAmount);
 
             expect((await registry.getInvoice(invoiceId)).status).to.equal(3 /* Settled */);
-            expect(await controller.nav()).to.equal(deposit + (faceAmount - principal)); // yield realized
+            expect((await controller.fundingOf(invoiceId)).status).to.equal(Settled);
+            // Yield = face - principal is realized into the pool.
+            expect(await controller.nav()).to.equal(deposit + (faceAmount - principal));
+            expect(await controller.totalDeployed()).to.equal(0);
+            expect(await asset.balanceOf(buyer.address)).to.equal(0);
+        });
+
+        it("holds no balance at rest — the payment passes straight through", async () => {
+            await asset.connect(buyer).approve(await settlement.getAddress(), faceAmount);
+            await settlement.connect(buyer).payInvoice(invoiceId);
             expect(await asset.balanceOf(await settlement.getAddress())).to.equal(0);
         });
 
-        it("rejects an invalid proof", async () => {
-            await verifier.setPaymentValid(false);
-            const proof = paymentProof({ reference: invoiceId, receiver: RECEIVER_HASH, receivedAmount: faceAmount, status: 0 });
-            await expect(settlement.settle(invoiceId, proof)).to.be.revertedWithCustomError(settlement, "InvalidProof");
+        it("needs no pre-funded reserve — the buyer's own money repays the vault", async () => {
+            // The Flare version required this contract to be pre-funded with the face amount.
+            expect(await asset.balanceOf(await settlement.getAddress())).to.equal(0);
+            await asset.connect(buyer).approve(await settlement.getAddress(), faceAmount);
+            await settlement.connect(buyer).payInvoice(invoiceId);
+            expect((await controller.fundingOf(invoiceId)).status).to.equal(Settled);
         });
 
-        it("rejects wrong reference, wrong receiver, underpayment, and failed status", async () => {
-            await expect(
-                settlement.settle(invoiceId, paymentProof({ reference: ethers.ZeroHash, receiver: RECEIVER_HASH, receivedAmount: faceAmount, status: 0 }))
-            ).to.be.revertedWithCustomError(settlement, "WrongPaymentReference");
-            await expect(
-                settlement.settle(invoiceId, paymentProof({ reference: invoiceId, receiver: ethers.ZeroHash, receivedAmount: faceAmount, status: 0 }))
-            ).to.be.revertedWithCustomError(settlement, "WrongReceiver");
-            await expect(
-                settlement.settle(invoiceId, paymentProof({ reference: invoiceId, receiver: RECEIVER_HASH, receivedAmount: faceAmount - 1n, status: 0 }))
-            ).to.be.revertedWithCustomError(settlement, "Underpaid");
-            await expect(
-                settlement.settle(invoiceId, paymentProof({ reference: invoiceId, receiver: RECEIVER_HASH, receivedAmount: faceAmount, status: 1 }))
-            ).to.be.revertedWithCustomError(settlement, "PaymentNotSuccessful");
+        it("is permissionless — anyone may settle on the buyer's behalf", async () => {
+            await asset.mint(stranger.address, faceAmount);
+            await asset.connect(stranger).approve(await settlement.getAddress(), faceAmount);
+            await expect(settlement.connect(stranger).payInvoice(invoiceId))
+                .to.emit(settlement, "Settled")
+                .withArgs(invoiceId, stranger.address, faceAmount);
+        });
+
+        it("reverts without an allowance", async () => {
+            await expect(settlement.connect(buyer).payInvoice(invoiceId)).to.be.reverted;
+        });
+
+        it("reverts on a short balance — payment is all-or-nothing", async () => {
+            const poor = stranger;
+            await asset.mint(poor.address, faceAmount - 1n);
+            await asset.connect(poor).approve(await settlement.getAddress(), faceAmount);
+            await expect(settlement.connect(poor).payInvoice(invoiceId)).to.be.reverted;
+        });
+
+        it("rejects an invoice that was never funded", async () => {
+            const unknown = ethers.hexlify(ethers.randomBytes(32));
+            await asset.connect(buyer).approve(await settlement.getAddress(), faceAmount);
+            await expect(settlement.connect(buyer).payInvoice(unknown)).to.be.revertedWithCustomError(
+                settlement,
+                "NotOutstanding"
+            );
+        });
+
+        it("cannot be paid twice", async () => {
+            await asset.mint(buyer.address, faceAmount);
+            await asset.connect(buyer).approve(await settlement.getAddress(), faceAmount * 2n);
+            await settlement.connect(buyer).payInvoice(invoiceId);
+            await expect(settlement.connect(buyer).payInvoice(invoiceId)).to.be.revertedWithCustomError(
+                settlement,
+                "NotOutstanding"
+            );
+        });
+
+        it("can still be paid after the due date, right up until someone defaults it", async () => {
+            await time.increaseTo(dueDate + GRACE + 10);
+            expect(await settlement.isDefaultable(invoiceId)).to.equal(true);
+
+            await asset.connect(buyer).approve(await settlement.getAddress(), faceAmount);
+            await settlement.connect(buyer).payInvoice(invoiceId);
+            expect((await controller.fundingOf(invoiceId)).status).to.equal(Settled);
         });
     });
 
     describe("markDefault", () => {
-        it("defaults a funded invoice from a verified non-payment past due + grace", async () => {
-            await time.increaseTo(dueDate + 1);
-            const proof = nonexistenceProof({ reference: invoiceId, destination: RECEIVER_HASH, amount: faceAmount, deadlineTs: dueDate + GRACE });
-            await expect(settlement.markDefault(invoiceId, proof))
+        it("writes off an unpaid invoice past due + grace, permissionlessly", async () => {
+            await time.increaseTo(dueDate + GRACE + 1);
+
+            await expect(settlement.connect(stranger).markDefault(invoiceId))
                 .to.emit(settlement, "Defaulted")
-                .withArgs(invoiceId, dueDate + GRACE);
+                .withArgs(invoiceId, stranger.address, dueDate, GRACE);
 
             expect((await registry.getInvoice(invoiceId)).status).to.equal(4 /* Defaulted */);
-            expect(await controller.nav()).to.equal(deposit - principal); // loss (junior empty → senior absorbs)
+            expect((await controller.fundingOf(invoiceId)).status).to.equal(Defaulted);
+            expect(await controller.totalDeployed()).to.equal(0);
+            // Junior is empty here, so the whole principal comes off senior.
+            expect(await controller.nav()).to.equal(deposit - principal);
         });
 
-        it("rejects a non-payment window that ends before due + grace", async () => {
+        it("refuses before due date + grace has elapsed", async () => {
+            await expect(settlement.markDefault(invoiceId))
+                .to.be.revertedWithCustomError(settlement, "NotYetDefaultable")
+                .withArgs(dueDate + GRACE);
+        });
+
+        it("refuses inside the grace period, after the due date", async () => {
             await time.increaseTo(dueDate + 1);
-            const proof = nonexistenceProof({ reference: invoiceId, destination: RECEIVER_HASH, amount: faceAmount, deadlineTs: dueDate + GRACE - 10 });
-            await expect(settlement.markDefault(invoiceId, proof)).to.be.revertedWithCustomError(settlement, "DeadlineBeforeGrace");
+            await expect(settlement.markDefault(invoiceId)).to.be.revertedWithCustomError(
+                settlement,
+                "NotYetDefaultable"
+            );
         });
 
-        it("rejects an invalid non-payment proof and a wrong amount", async () => {
-            await time.increaseTo(dueDate + 1);
-            await verifier.setNonexistenceValid(false);
+        it("refuses at exactly due + grace, and succeeds one second later", async () => {
+            // `setNextBlockTimestamp` (not `increaseTo`) so the transaction itself executes AT
+            // the boundary — `increaseTo` mines a block, leaving the call one second past it.
+            await time.setNextBlockTimestamp(dueDate + GRACE);
+            await expect(settlement.markDefault(invoiceId)).to.be.revertedWithCustomError(
+                settlement,
+                "NotYetDefaultable"
+            );
+            await time.setNextBlockTimestamp(dueDate + GRACE + 1);
+            await expect(settlement.markDefault(invoiceId)).to.emit(settlement, "Defaulted");
+        });
+
+        it("cannot default an already-settled invoice", async () => {
+            await asset.connect(buyer).approve(await settlement.getAddress(), faceAmount);
+            await settlement.connect(buyer).payInvoice(invoiceId);
+            await time.increaseTo(dueDate + GRACE + 10);
+            await expect(settlement.markDefault(invoiceId)).to.be.revertedWithCustomError(settlement, "NotOutstanding");
+        });
+
+        it("cannot be defaulted twice", async () => {
+            await time.increaseTo(dueDate + GRACE + 1);
+            await settlement.markDefault(invoiceId);
+            await expect(settlement.markDefault(invoiceId)).to.be.revertedWithCustomError(settlement, "NotOutstanding");
+        });
+
+        it("cannot settle after default — payment and default are mutually exclusive", async () => {
+            await time.increaseTo(dueDate + GRACE + 1);
+            await settlement.markDefault(invoiceId);
+            await asset.connect(buyer).approve(await settlement.getAddress(), faceAmount);
+            await expect(settlement.connect(buyer).payInvoice(invoiceId)).to.be.revertedWithCustomError(
+                settlement,
+                "NotOutstanding"
+            );
+            // And the buyer keeps their money — nothing was pulled.
+            expect(await asset.balanceOf(buyer.address)).to.equal(faceAmount);
+        });
+
+        it("junior absorbs the loss first when it has capital", async () => {
+            // Re-run with a funded junior tranche to prove the waterfall still routes through.
+            const juniorDeposit = ethers.parseUnits("50000", 6);
+            await asset.mint(funder.address, juniorDeposit);
+            await asset.connect(funder).approve(await junior.getAddress(), juniorDeposit);
+            await junior.connect(funder).deposit(juniorDeposit, funder.address);
+
+            const seniorBefore = await controller.claimOf(await senior.getAddress());
+            await time.increaseTo(dueDate + GRACE + 1);
+            await settlement.markDefault(invoiceId);
+
+            expect(await controller.claimOf(await junior.getAddress())).to.equal(juniorDeposit - principal);
+            expect(await controller.claimOf(await senior.getAddress())).to.equal(seniorBefore);
+        });
+    });
+
+    describe("views", () => {
+        it("amountDue reports the face amount while outstanding, zero afterwards", async () => {
+            expect(await settlement.amountDue(invoiceId)).to.equal(faceAmount);
+            await asset.connect(buyer).approve(await settlement.getAddress(), faceAmount);
+            await settlement.connect(buyer).payInvoice(invoiceId);
+            expect(await settlement.amountDue(invoiceId)).to.equal(0);
+        });
+
+        it("defaultableAt reports the deadline, zero once not outstanding", async () => {
+            expect(await settlement.defaultableAt(invoiceId)).to.equal(dueDate + GRACE);
+            await asset.connect(buyer).approve(await settlement.getAddress(), faceAmount);
+            await settlement.connect(buyer).payInvoice(invoiceId);
+            expect(await settlement.defaultableAt(invoiceId)).to.equal(0);
+        });
+
+        it("isDefaultable flips exactly when markDefault starts succeeding", async () => {
+            expect(await settlement.isDefaultable(invoiceId)).to.equal(false);
+            await time.increaseTo(dueDate + GRACE);
+            expect(await settlement.isDefaultable(invoiceId)).to.equal(false);
+            await time.increaseTo(dueDate + GRACE + 1);
+            expect(await settlement.isDefaultable(invoiceId)).to.equal(true);
+        });
+
+        it("views are zero/false for an unknown invoice", async () => {
+            const unknown = ethers.hexlify(ethers.randomBytes(32));
+            expect(await settlement.amountDue(unknown)).to.equal(0);
+            expect(await settlement.defaultableAt(unknown)).to.equal(0);
+            expect(await settlement.isDefaultable(unknown)).to.equal(false);
+        });
+    });
+
+    describe("sweep", () => {
+        it("recovers tokens a buyer transferred directly instead of calling payInvoice", async () => {
+            await asset.connect(buyer).transfer(await settlement.getAddress(), faceAmount);
+            expect(await asset.balanceOf(await settlement.getAddress())).to.equal(faceAmount);
+
+            await settlement.connect(owner).sweep(await asset.getAddress(), owner.address);
+            expect(await asset.balanceOf(owner.address)).to.equal(faceAmount);
+            expect(await asset.balanceOf(await settlement.getAddress())).to.equal(0);
+        });
+
+        it("is owner-only and rejects a zero recipient / empty balance", async () => {
+            await asset.connect(buyer).transfer(await settlement.getAddress(), faceAmount);
             await expect(
-                settlement.markDefault(invoiceId, nonexistenceProof({ reference: invoiceId, destination: RECEIVER_HASH, amount: faceAmount, deadlineTs: dueDate + GRACE }))
-            ).to.be.revertedWithCustomError(settlement, "InvalidProof");
-
-            await verifier.setNonexistenceValid(true);
+                settlement.connect(stranger).sweep(await asset.getAddress(), stranger.address)
+            ).to.be.revertedWithCustomError(settlement, "NotOwner");
             await expect(
-                settlement.markDefault(invoiceId, nonexistenceProof({ reference: invoiceId, destination: RECEIVER_HASH, amount: faceAmount - 1n, deadlineTs: dueDate + GRACE }))
-            ).to.be.revertedWithCustomError(settlement, "WrongAmount");
+                settlement.connect(owner).sweep(await asset.getAddress(), ethers.ZeroAddress)
+            ).to.be.revertedWithCustomError(settlement, "ZeroAddress");
+
+            await settlement.connect(owner).sweep(await asset.getAddress(), owner.address);
+            await expect(
+                settlement.connect(owner).sweep(await asset.getAddress(), owner.address)
+            ).to.be.revertedWithCustomError(settlement, "NothingToSweep");
+        });
+
+        it("cannot touch capital in flight — settlement is atomic, so there is none to touch", async () => {
+            await asset.connect(buyer).approve(await settlement.getAddress(), faceAmount);
+            await settlement.connect(buyer).payInvoice(invoiceId);
+            await expect(
+                settlement.connect(owner).sweep(await asset.getAddress(), owner.address)
+            ).to.be.revertedWithCustomError(settlement, "NothingToSweep");
         });
     });
 
-    describe("reserve (M3)", () => {
-        it("reserveBalance reflects held ASSET; fundReserve tops up + emits", async () => {
-            expect(await settlement.reserveBalance()).to.equal(faceAmount);
-            await asset.mint(owner.address, faceAmount);
-            await asset.connect(owner).approve(await settlement.getAddress(), faceAmount);
-            await expect(settlement.connect(owner).fundReserve(faceAmount))
-                .to.emit(settlement, "ReserveFunded")
-                .withArgs(owner.address, faceAmount, faceAmount * 2n);
-            expect(await settlement.reserveBalance()).to.equal(faceAmount * 2n);
+    describe("ownership", () => {
+        it("transfers to a new owner and revokes the old one", async () => {
+            await expect(settlement.connect(owner).transferOwnership(stranger.address))
+                .to.emit(settlement, "OwnershipTransferred")
+                .withArgs(owner.address, stranger.address);
+            await asset.connect(buyer).transfer(await settlement.getAddress(), faceAmount);
+            await expect(
+                settlement.connect(owner).sweep(await asset.getAddress(), owner.address)
+            ).to.be.revertedWithCustomError(settlement, "NotOwner");
+            await settlement.connect(stranger).sweep(await asset.getAddress(), stranger.address);
         });
-
-        it("settle reverts InsufficientReserve (with the shortfall) when the reserve is short", async () => {
-            await settlement.connect(owner).withdrawReserve(faceAmount, owner.address); // empty the reserve
-            const proof = paymentProof({ reference: invoiceId, receiver: RECEIVER_HASH, receivedAmount: faceAmount, status: 0 });
-            await expect(settlement.settle(invoiceId, proof))
-                .to.be.revertedWithCustomError(settlement, "InsufficientReserve")
-                .withArgs(0, faceAmount);
-        });
-
-        it("withdrawReserve is owner-only and moves ASSET out", async () => {
-            await expect(settlement.connect(keeper).withdrawReserve(faceAmount, keeper.address))
-                .to.be.revertedWithCustomError(settlement, "NotOwner");
-            await expect(settlement.connect(owner).withdrawReserve(faceAmount, owner.address))
-                .to.emit(settlement, "ReserveWithdrawn")
-                .withArgs(owner.address, faceAmount, 0);
-            expect(await settlement.reserveBalance()).to.equal(0);
-        });
-    });
-
-    it("rejects settling an invoice that is not funded", async () => {
-        const ref = ethers.keccak256(ethers.toUtf8Bytes("INV-unfunded"));
-        await registry.connect(supplier).registerInvoice(buyerCommitment, faceAmount, dueDate, ref);
-        const unfunded = await registry.computeInvoiceId(supplier.address, buyerCommitment, faceAmount, dueDate, ref);
-        const proof = paymentProof({ reference: unfunded, receiver: RECEIVER_HASH, receivedAmount: faceAmount, status: 0 });
-        await expect(settlement.settle(unfunded, proof)).to.be.revertedWithCustomError(settlement, "InvoiceNotFunded");
-    });
-
-    it("owner can rotate the protocol receiver hash (L2)", async () => {
-        const newReceiver = ethers.keccak256(ethers.toUtf8Bytes("rCifraProtocolXRPL-v2"));
-        await expect(settlement.connect(keeper).setProtocolReceiverHash(newReceiver)).to.be.revertedWithCustomError(settlement, "NotOwner");
-
-        await expect(settlement.connect(owner).setProtocolReceiverHash(newReceiver))
-            .to.emit(settlement, "ProtocolReceiverHashUpdated")
-            .withArgs(RECEIVER_HASH, newReceiver);
-        expect(await settlement.protocolReceiverHash()).to.equal(newReceiver);
-
-        // A payment to the OLD receiver now fails; to the NEW receiver it settles.
-        await expect(
-            settlement.settle(invoiceId, paymentProof({ reference: invoiceId, receiver: RECEIVER_HASH, receivedAmount: faceAmount, status: 0 }))
-        ).to.be.revertedWithCustomError(settlement, "WrongReceiver");
-        await expect(
-            settlement.settle(invoiceId, paymentProof({ reference: invoiceId, receiver: newReceiver, receivedAmount: faceAmount, status: 0 }))
-        ).to.emit(settlement, "Settled");
     });
 });

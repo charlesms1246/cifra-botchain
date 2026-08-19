@@ -53,6 +53,21 @@ async function main() {
         ok(`share decimals = asset(${assetDec}) + 3`, Number(await senior.decimals()) === assetDec + 3, `${await senior.decimals()}`);
         console.log(`        asset symbol ${await assetMeta.symbol()}, ${assetDec}dp; shares ${await senior.symbol()} / ${await junior.symbol()}`);
 
+        if (b.settlement) {
+            const settlement = await ethers.getContractAt("CifraSettlement", b.settlement);
+            ok("settlement.CONTROLLER points at this book", (await settlement.CONTROLLER()) === b.controller);
+            ok("settlement.ASSET matches the book asset", (await settlement.ASSET()) === b.asset);
+            ok("controller trusts this settlement", (await controller.settlement()) === b.settlement);
+            ok("grace period is set", (await settlement.GRACE_PERIOD()) === BigInt(dep.config.gracePeriodSeconds));
+            // Settlement is atomic — funds pass straight through to the controller — so any
+            // resting balance means someone transferred the asset directly instead of calling
+            // payInvoice, and it needs sweeping.
+            const stuck = await new ethers.Contract(b.asset, ["function balanceOf(address) view returns (uint256)"], ethers.provider).balanceOf(b.settlement);
+            ok("settlement holds no balance at rest", stuck === 0n, `${stuck} stranded`);
+        } else {
+            ok("settlement deployed", false, "missing from the deployment record");
+        }
+
         if (b.nativeDepositHelper) {
             const helper = await ethers.getContractAt("CifraNativeDepositHelper", b.nativeDepositHelper);
             ok("helper.WRAPPED is the canonical wrapped native", (await helper.WRAPPED()) === dep.external.wrappedNative);

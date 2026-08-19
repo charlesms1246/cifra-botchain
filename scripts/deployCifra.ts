@@ -25,6 +25,7 @@ import { networkConfig, isLocalChain, TWAP_WINDOW_SECONDS, type BookConfig, type
 //   CIFRA_SCORER_ADDRESS  — the scoring service's signing key (default: deployer, updatable later)
 //   CIFRA_OPERATOR        — funding keeper (default: deployer)
 //   CIFRA_BOOKS           — comma-separated subset, e.g. "usdt" (default: both)
+//   CIFRA_GRACE_DAYS      — days past due before an invoice can be defaulted (default: 3)
 //   VERIFY=false          — skip block-explorer verification
 
 type Deployed = { name: string; address: string; contract: any; args: unknown[] };
@@ -57,7 +58,8 @@ async function deployBook(
     attestation: string,
     operator: string,
     deployer: string,
-    wrappedNative: string
+    wrappedNative: string,
+    gracePeriod: number
 ) {
     console.log(`\n── ${book.label} book ──`);
     console.log(`  asset                              ${book.asset}`);
@@ -97,9 +99,15 @@ async function deployBook(
         helper = await deploy("CifraNativeDepositHelper", [wrappedNative], `CifraNativeDepositHelper[${key}]`);
     }
 
+    // Settlement reads its asset straight off the controller, so it takes no asset argument
+    // and the two can never be pointed at different tokens.
+    const settlement = await deploy("CifraSettlement", [controller.address, gracePeriod], `CifraSettlement[${key}]`);
+
     console.log(`  wiring:`);
     await (await controller.contract.setTrancheVaults(senior.address, junior.address)).wait();
     console.log(`    controller.setTrancheVaults(senior, junior)`);
+    await (await controller.contract.setSettlement(settlement.address)).wait();
+    console.log(`    controller.setSettlement(${settlement.address})`);
     if (operator !== deployer) {
         await (await controller.contract.setOperator(operator)).wait();
         console.log(`    controller.setOperator(${operator})`);
@@ -110,6 +118,7 @@ async function deployBook(
         controller: controller.address,
         seniorVault: senior.address,
         juniorVault: junior.address,
+        settlement: settlement.address,
         ...(navOracle ? { navOracle: navOracle.address } : {}),
         ...(helper ? { nativeDepositHelper: helper.address } : {}),
     };
@@ -171,6 +180,8 @@ async function main() {
     }
 
     const scorerAddress = env("CIFRA_SCORER_ADDRESS") ?? deployer.address;
+    const graceDays = Number(env("CIFRA_GRACE_DAYS") ?? "3");
+    const gracePeriod = graceDays * 24 * 3600;
     const operator = env("CIFRA_OPERATOR") ?? deployer.address;
     if (!env("CIFRA_SCORER_ADDRESS"))
         console.log(
@@ -206,7 +217,8 @@ async function main() {
             attestation.address,
             operator,
             deployer.address,
-            cfg.wrappedNative
+            cfg.wrappedNative,
+            gracePeriod
         );
         books[key] = out;
         controllers.push(out.controller);
@@ -225,17 +237,13 @@ async function main() {
         chainId,
         deployedAt: new Date().toISOString(),
         deployer: deployer.address,
-        config: { scorerAddress, operator, twapWindowSeconds: TWAP_WINDOW_SECONDS },
+        config: { scorerAddress, operator, twapWindowSeconds: TWAP_WINDOW_SECONDS, gracePeriodSeconds: gracePeriod },
         external: { wrappedNative: cfg.wrappedNative },
         shared: {
             CifraInvoiceRegistry: registry.address,
             CifraAttestationNFT: attestation.address,
         },
         books,
-        // CifraSettlement is intentionally absent: the on-chain-payment redesign lands in
-        // Phase 2 (claude-docs/DECISIONS.md D5). Until then the operator records
-        // repayment/default directly — `onlySettler` already permits that.
-        settlement: null,
     };
     const dir = path.join(__dirname, "..", "deployments");
     fs.mkdirSync(dir, { recursive: true });

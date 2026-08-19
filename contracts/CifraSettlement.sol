@@ -1,196 +1,162 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import { IPayment } from "@flarenetwork/flare-periphery-contracts/coston2/IPayment.sol";
-import { IPaymentVerification } from "@flarenetwork/flare-periphery-contracts/coston2/IPaymentVerification.sol";
-import { IReferencedPaymentNonexistence } from "@flarenetwork/flare-periphery-contracts/coston2/IReferencedPaymentNonexistence.sol";
-import { IReferencedPaymentNonexistenceVerification } from "@flarenetwork/flare-periphery-contracts/coston2/IReferencedPaymentNonexistenceVerification.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { CifraInvoiceRegistry } from "./CifraInvoiceRegistry.sol";
 import { CifraTrancheController } from "./CifraTrancheController.sol";
 
 /// @title CifraSettlement
-/// @notice Closes invoices from FDC attestations. A buyer's on-chain-verifiable payment
-///         (`Payment` proof, referenced by the invoiceId) settles the invoice and repays
-///         the vault; a `ReferencedPaymentNonexistence` proof after the due date + grace
-///         defaults it. Verification uses the real FDC interfaces; the buyer's XRPL payment
-///         is tied to the invoice through the standard payment reference == invoiceId.
+/// @notice Closes a funded invoice: the buyer repays face value on-chain, or the invoice is
+///         defaulted once it is past due. One instance per book, bound to that book's controller.
 ///
-///         The FDC verifier is injected so the flow is unit-testable with a mock; on Coston2
-///         it is the address resolved from `ContractRegistry.getFdcVerification()`.
+///         WHY THIS IS SO MUCH SMALLER THAN THE FLARE VERSION
+///         On Flare the buyer paid XRP on the XRPL, so "did the buyer pay?" was an off-chain
+///         fact. Answering it needed an FDC `Payment` attestation, Merkle proofs, a DA layer,
+///         and — because the money arrived on a different chain — a pre-funded reserve here to
+///         front the repayment plus off-chain reconciliation to top it back up. Proving the
+///         *negative* for a default needed a second attestation type entirely
+///         (`ReferencedPaymentNonexistence`).
 ///
-///         Units/funding assumptions (demo, disclosed):
-///         - FXRP is 1:1 with XRP and both use 6 decimals, so a Payment `receivedAmount`
-///           (XRP drops) compares directly against the invoice `faceAmount` (FXRP minimal units).
+///         Here the buyer pays in the book's own ERC-20, so this contract simply *observes the
+///         payment itself*. There is no oracle, no proof, and no reserve: `payInvoice` pulls the
+///         buyer's funds and hands them straight to the controller in one transaction, so the
+///         contract holds a zero balance at rest. Default is a `block.timestamp` comparison that
+///         anyone may call. Both guarantees are strictly stronger than the attested versions and
+///         the machinery is ~60% smaller. See claude-docs/DECISIONS.md D5.
 ///
-///         RESERVE MODEL (production note, audit finding M3): settlement is a *reserve*, not a
-///         pass-through. The buyer pays XRP to the protocol's XRPL receiving address (off-chain);
-///         `settle()` forwards `faceAmount` FXRP that THIS contract already holds to the vault to
-///         repay funders. The buyer's XRP and the forwarded FXRP are therefore distinct: the
-///         protocol fronts FXRP from a reserve held here and separately reconciles the received
-///         XRP (converting XRP→FXRP via the FAssets direct-minting flow to replenish the reserve).
-///         Consequently this contract MUST be funded with an FXRP reserve >= the invoice face
-///         value at settle time. The reserve is now explicit + auditable: `reserveBalance()`,
-///         `fundReserve()`/`withdrawReserve()` (evented; withdraw is Safe-governed), and `settle()`
-///         reverts `InsufficientReserve(have, need)` up front instead of an opaque transferFrom
-///         failure. Replenishment is a first-class on-chain action — the protocol direct-mints
-///         received buyer XRP into FXRP (FAssets direct minting, see scripts/directMint.ts) and
-///         calls `fundReserve`. Remaining v2: fold that direct-mint into a single buyer payment
-///         bound to the invoice (blocked partly by IXRPPayment not being in the periphery package).
+///         PAYMENT IS ALL-OR-NOTHING (v1). `payInvoice` transfers the full face amount or
+///         reverts. Partial settlement would need per-invoice paid-to-date accounting here and a
+///         partial-repayment path in the controller's waterfall; until that exists, silently
+///         accepting a short payment would strand funds in this contract with the invoice still
+///         Outstanding. Failing closed is the honest v1.
 contract CifraSettlement {
     using SafeERC20 for IERC20;
 
-    uint8 private constant PAYMENT_SUCCESS = 0;
-
-    CifraInvoiceRegistry public immutable REGISTRY;
+    /// @notice The book this settlement belongs to. Repayment and default are recorded here.
     CifraTrancheController public immutable CONTROLLER;
-    IERC20 public immutable FXRP;
-    IPaymentVerification public immutable PAYMENT_VERIFIER;
-    IReferencedPaymentNonexistenceVerification public immutable NONEXISTENCE_VERIFIER;
 
-    /// @notice Standard address hash of the protocol's XRPL receiving address (where buyers pay).
-    ///         Owner-settable so the protocol can rotate its XRPL receiver without redeploying
-    ///         and re-wiring the vault. Changing it only affects which future payments settle —
-    ///         it cannot move funds out of this contract or the vault, so it is safe to govern.
-    bytes32 public protocolReceiverHash;
+    /// @notice The book's settlement asset. Read from the controller at construction so the two
+    ///         can never disagree — a mismatch would be unrecoverable in a live book.
+    IERC20 public immutable ASSET;
 
-    /// @notice Grace period after an invoice's due date before it can be defaulted.
+    /// @notice Days past `dueDate` before an invoice may be defaulted. Immutable: extending it
+    ///         after funding would silently move funders' risk, and shortening it could default
+    ///         an invoice a buyer was still entitled to pay.
     uint64 public immutable GRACE_PERIOD;
 
     address public owner;
 
-    event Settled(bytes32 indexed invoiceId, uint256 faceAmount, bytes32 paymentReference);
-    event Defaulted(bytes32 indexed invoiceId, uint64 deadlineTimestamp);
-    event ProtocolReceiverHashUpdated(bytes32 indexed previousHash, bytes32 indexed newHash);
+    event Settled(bytes32 indexed invoiceId, address indexed payer, uint256 faceAmount);
+    event Defaulted(bytes32 indexed invoiceId, address indexed caller, uint64 dueDate, uint64 gracePeriod);
+    event Swept(address indexed token, address indexed to, uint256 amount);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-    event ReserveFunded(address indexed from, uint256 amount, uint256 newBalance);
-    event ReserveWithdrawn(address indexed to, uint256 amount, uint256 newBalance);
 
     error NotOwner();
     error ZeroAddress();
-    error UnknownInvoice();
-    error InvoiceNotFunded();
-    error InvalidProof();
-    error PaymentNotSuccessful();
-    error WrongPaymentReference();
-    error WrongReceiver();
-    error Underpaid();
-    error WrongAmount();
-    error DeadlineBeforeGrace();
-    error InsufficientReserve(uint256 have, uint256 need);
-
-    constructor(
-        CifraInvoiceRegistry registry_,
-        CifraTrancheController controller_,
-        IERC20 fxrp_,
-        address fdcVerifier_,
-        bytes32 protocolReceiverHash_,
-        uint64 gracePeriod_
-    ) {
-        REGISTRY = registry_;
-        CONTROLLER = controller_;
-        FXRP = fxrp_;
-        PAYMENT_VERIFIER = IPaymentVerification(fdcVerifier_);
-        NONEXISTENCE_VERIFIER = IReferencedPaymentNonexistenceVerification(fdcVerifier_);
-        protocolReceiverHash = protocolReceiverHash_;
-        GRACE_PERIOD = gracePeriod_;
-        owner = msg.sender;
-        emit ProtocolReceiverHashUpdated(bytes32(0), protocolReceiverHash_);
-        emit OwnershipTransferred(address(0), msg.sender);
-    }
+    error NotOutstanding();
+    error NotYetDefaultable(uint64 defaultableAt);
+    error ShortPayment(uint256 expected, uint256 received);
+    error NothingToSweep();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
         _;
     }
 
-    /// @notice Settle a funded invoice from a verified buyer payment. Forwards `faceAmount`
-    ///         FXRP (held by this contract) to the vault and closes the invoice.
-    function settle(bytes32 invoiceId, IPayment.Proof calldata proof) external {
-        CifraInvoiceRegistry.Invoice memory inv = _fundedInvoice(invoiceId);
-
-        if (!PAYMENT_VERIFIER.verifyPayment(proof)) revert InvalidProof();
-
-        IPayment.ResponseBody calldata rb = proof.data.responseBody;
-        if (rb.status != PAYMENT_SUCCESS) revert PaymentNotSuccessful();
-        if (rb.standardPaymentReference != invoiceId) revert WrongPaymentReference();
-        if (rb.receivingAddressHash != protocolReceiverHash) revert WrongReceiver();
-        if (rb.receivedAmount < int256(inv.faceAmount)) revert Underpaid();
-
-        // The reserve must hold enough FXRP to front the repayment (see RESERVE MODEL above).
-        // Fail with an explicit shortfall rather than an opaque transferFrom revert.
-        uint256 reserve = FXRP.balanceOf(address(this));
-        if (reserve < inv.faceAmount) revert InsufficientReserve(reserve, inv.faceAmount);
-
-        FXRP.forceApprove(address(CONTROLLER), inv.faceAmount);
-        CONTROLLER.recordRepayment(invoiceId);
-
-        emit Settled(invoiceId, inv.faceAmount, rb.standardPaymentReference);
+    constructor(CifraTrancheController controller_, uint64 gracePeriod_) {
+        if (address(controller_) == address(0) || address(controller_).code.length == 0) revert ZeroAddress();
+        CONTROLLER = controller_;
+        ASSET = controller_.ASSET();
+        GRACE_PERIOD = gracePeriod_;
+        owner = msg.sender;
+        emit OwnershipTransferred(address(0), msg.sender);
     }
 
-    /// @notice Default a funded invoice from a verified non-payment over a window that
-    ///         extends past the due date + grace period.
-    function markDefault(bytes32 invoiceId, IReferencedPaymentNonexistence.Proof calldata proof) external {
-        CifraInvoiceRegistry.Invoice memory inv = _fundedInvoice(invoiceId);
+    // --- Settlement ---
 
-        if (!NONEXISTENCE_VERIFIER.verifyReferencedPaymentNonexistence(proof)) revert InvalidProof();
+    /// @notice Repay a funded invoice in full and close it. Permissionless: the buyer normally
+    ///         calls this, but anyone may settle on their behalf — who paid does not change who
+    ///         is owed, and restricting it would only strand invoices whose buyer lost key access.
+    /// @dev Caller must have approved this contract for the invoice's full face amount.
+    ///      Atomic and balance-neutral: funds are pulled in and handed to the controller in the
+    ///      same call, so this contract never holds settlement capital at rest.
+    function payInvoice(bytes32 invoiceId) external {
+        (, uint256 faceAmount, , , CifraTrancheController.FundingStatus status) = CONTROLLER.fundingOf(invoiceId);
+        if (status != CifraTrancheController.FundingStatus.Outstanding) revert NotOutstanding();
 
-        IReferencedPaymentNonexistence.RequestBody calldata req = proof.data.requestBody;
-        if (req.standardPaymentReference != invoiceId) revert WrongPaymentReference();
-        if (req.destinationAddressHash != protocolReceiverHash) revert WrongReceiver();
-        if (req.amount < inv.faceAmount) revert WrongAmount();
-        // The non-payment window must reach past the due date + grace, otherwise the buyer
-        // might still have paid within the allowed period.
-        if (req.deadlineTimestamp < inv.dueDate + GRACE_PERIOD) revert DeadlineBeforeGrace();
+        // Measure what actually arrived rather than trusting `faceAmount` to have been
+        // delivered: a fee-on-transfer or rebasing asset would otherwise leave the controller's
+        // pull to fail with an opaque balance error deeper in the stack.
+        uint256 before = ASSET.balanceOf(address(this));
+        ASSET.safeTransferFrom(msg.sender, address(this), faceAmount);
+        uint256 received = ASSET.balanceOf(address(this)) - before;
+        if (received < faceAmount) revert ShortPayment(faceAmount, received);
+
+        ASSET.forceApprove(address(CONTROLLER), faceAmount);
+        CONTROLLER.recordRepayment(invoiceId);
+
+        emit Settled(invoiceId, msg.sender, faceAmount);
+    }
+
+    /// @notice Write off an invoice the buyer never paid. Permissionless and oracle-free: after
+    ///         `dueDate + GRACE_PERIOD` the absence of a payment is directly observable, because
+    ///         paying would have moved the invoice out of `Outstanding`.
+    ///
+    ///         The junior tranche absorbs the loss first; the controller enforces that waterfall.
+    ///         If a buyer pays in the same block someone calls this, whichever transaction lands
+    ///         first wins and the other reverts `NotOutstanding` — payment and default can never
+    ///         both be recorded.
+    function markDefault(bytes32 invoiceId) external {
+        (, , , uint64 dueDate, CifraTrancheController.FundingStatus status) = CONTROLLER.fundingOf(invoiceId);
+        if (status != CifraTrancheController.FundingStatus.Outstanding) revert NotOutstanding();
+
+        uint64 deadline = dueDate + GRACE_PERIOD;
+        if (block.timestamp <= deadline) revert NotYetDefaultable(deadline);
 
         CONTROLLER.recordDefault(invoiceId);
 
-        emit Defaulted(invoiceId, req.deadlineTimestamp);
+        emit Defaulted(invoiceId, msg.sender, dueDate, GRACE_PERIOD);
     }
 
-    // --- Reserve (audit finding M3) ---
+    // --- Views (what a UI needs to render a buyer's payment screen) ---
 
-    /// @notice FXRP the settlement holds to front repayments. `settle()` requires this be
-    ///         >= the invoice face value (else `InsufficientReserve`). Made explicit + evented
-    ///         so the fronting is auditable on-chain rather than an implicit balance.
-    function reserveBalance() external view returns (uint256) {
-        return FXRP.balanceOf(address(this));
+    /// @notice Amount the buyer must approve and pay. Zero once the invoice is no longer owed.
+    function amountDue(bytes32 invoiceId) external view returns (uint256) {
+        (, uint256 faceAmount, , , CifraTrancheController.FundingStatus status) = CONTROLLER.fundingOf(invoiceId);
+        return status == CifraTrancheController.FundingStatus.Outstanding ? faceAmount : 0;
     }
 
-    /// @notice Top up the reserve. First-class + evented so replenishment (e.g. after the
-    ///         protocol direct-mints received buyer XRP into FXRP) is a tracked on-chain action.
-    ///         Caller must have approved `amount` FXRP to this contract.
-    function fundReserve(uint256 amount) external {
-        FXRP.safeTransferFrom(msg.sender, address(this), amount);
-        emit ReserveFunded(msg.sender, amount, FXRP.balanceOf(address(this)));
+    /// @notice Timestamp from which `markDefault` will succeed. Zero if the invoice is not
+    ///         outstanding (nothing to default).
+    function defaultableAt(bytes32 invoiceId) external view returns (uint64) {
+        (, , , uint64 dueDate, CifraTrancheController.FundingStatus status) = CONTROLLER.fundingOf(invoiceId);
+        if (status != CifraTrancheController.FundingStatus.Outstanding) return 0;
+        return dueDate + GRACE_PERIOD;
     }
 
-    /// @notice Withdraw surplus reserve to `to`. Owner-gated (the governance Safe) so excess
-    ///         FXRP can be recovered without touching funder capital in the vault.
-    function withdrawReserve(uint256 amount, address to) external onlyOwner {
-        if (to == address(0)) revert ZeroAddress();
-        FXRP.safeTransfer(to, amount);
-        emit ReserveWithdrawn(to, amount, FXRP.balanceOf(address(this)));
+    /// @notice Whether `markDefault` would succeed right now.
+    function isDefaultable(bytes32 invoiceId) external view returns (bool) {
+        (, , , uint64 dueDate, CifraTrancheController.FundingStatus status) = CONTROLLER.fundingOf(invoiceId);
+        return status == CifraTrancheController.FundingStatus.Outstanding && block.timestamp > dueDate + GRACE_PERIOD;
     }
 
     // --- Admin ---
 
-    /// @notice Rotate the protocol's XRPL receiving-address hash (audit finding L2).
-    function setProtocolReceiverHash(bytes32 newHash) external onlyOwner {
-        emit ProtocolReceiverHashUpdated(protocolReceiverHash, newHash);
-        protocolReceiverHash = newHash;
+    /// @notice Recover tokens sent here by mistake. Settlement is atomic, so this contract holds
+    ///         no balance at rest and anything resting here is by definition unaccounted — most
+    ///         likely a buyer who transferred the asset directly instead of calling `payInvoice`.
+    ///         Owner-gated (the governance Safe) because the rightful recipient is off-chain.
+    function sweep(address token, address to) external onlyOwner {
+        if (to == address(0)) revert ZeroAddress();
+        uint256 bal = IERC20(token).balanceOf(address(this));
+        if (bal == 0) revert NothingToSweep();
+        IERC20(token).safeTransfer(to, bal);
+        emit Swept(token, to, bal);
     }
 
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
         emit OwnershipTransferred(owner, newOwner);
         owner = newOwner;
-    }
-
-    function _fundedInvoice(bytes32 invoiceId) private view returns (CifraInvoiceRegistry.Invoice memory inv) {
-        if (!REGISTRY.exists(invoiceId)) revert UnknownInvoice();
-        inv = REGISTRY.getInvoice(invoiceId);
-        if (inv.status != CifraInvoiceRegistry.Status.Funded) revert InvoiceNotFunded();
     }
 }
