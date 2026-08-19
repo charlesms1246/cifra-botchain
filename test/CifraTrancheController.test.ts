@@ -10,6 +10,8 @@ import {
 } from "../typechain-types";
 
 const abi = ethers.AbiCoder.defaultAbiCoder();
+const MODEL_VERSION = ethers.encodeBytes32String("cifra-score-v1");
+const IMAGE_DIGEST = ethers.keccak256(ethers.toUtf8Bytes("sha256:test-image"));
 const SCORE_RESULT_DOMAIN = ethers.encodeBytes32String("CIFRA_SCORE_RESULT");
 const BPS = 10000n;
 
@@ -75,7 +77,7 @@ describe("CifraTrancheController", () => {
         const refHash = ethers.keccak256(ethers.toUtf8Bytes(ref));
         await registry.connect(supplier).registerInvoice(buyerCommitment, faceAmount, dueDate, refHash);
         const invoiceId = await registry.computeInvoiceId(supplier.address, buyerCommitment, faceAmount, dueDate, refHash);
-        const resultData = abi.encode(["bytes32", "bytes32", "uint256", "uint256"], [invoiceId, ethers.encodeBytes32String("A"), 9900, discountBps]);
+        const resultData = abi.encode(["bytes32", "bytes32", "uint256", "uint256", "bytes32", "bytes32"], [invoiceId, ethers.encodeBytes32String("A"), 9900, discountBps, MODEL_VERSION, IMAGE_DIGEST]);
         const sig = await signResult(tee, resultData, actionId, tag, 1, chainId);
         await attestation.attest(invoiceId, resultData, actionId, tag, 1, sig);
         return invoiceId;

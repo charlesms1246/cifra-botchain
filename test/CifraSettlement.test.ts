@@ -11,6 +11,8 @@ import {
 } from "../typechain-types";
 
 const abi = ethers.AbiCoder.defaultAbiCoder();
+const MODEL_VERSION = ethers.encodeBytes32String("cifra-score-v1");
+const IMAGE_DIGEST = ethers.keccak256(ethers.toUtf8Bytes("sha256:test-image"));
 const SCORE_RESULT_DOMAIN = ethers.encodeBytes32String("CIFRA_SCORE_RESULT");
 const BPS = 10000n;
 const GRACE = 3 * 24 * 3600;
@@ -86,8 +88,8 @@ describe("CifraSettlement", () => {
         await registry.connect(supplier).registerInvoice(buyerCommitment, faceAmount, dueDate, ref);
         invoiceId = await registry.computeInvoiceId(supplier.address, buyerCommitment, faceAmount, dueDate, ref);
         const resultData = abi.encode(
-            ["bytes32", "bytes32", "uint256", "uint256"],
-            [invoiceId, ethers.encodeBytes32String("A"), 9900, discountBps]
+            ["bytes32", "bytes32", "uint256", "uint256", "bytes32", "bytes32"],
+            [invoiceId, ethers.encodeBytes32String("A"), 9900, discountBps, MODEL_VERSION, IMAGE_DIGEST]
         );
         await attestation.attest(invoiceId, resultData, actionId, tag, 1, await signResult(scorer, resultData, actionId, tag, 1, chainId));
         await controller.connect(keeper).fundInvoice(invoiceId);

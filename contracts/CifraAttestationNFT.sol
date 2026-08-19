@@ -14,12 +14,16 @@ import { CifraInvoiceRegistry } from "./CifraInvoiceRegistry.sol";
 ///         identity, checks the grade was signed for THIS invoice, and records it.
 ///
 ///         TRUST MODEL — stated plainly. The signature proves the grade came from the
-///         key Cifra registered here; it does NOT prove which code produced it. The
-///         model source and the service's container digest are published so a grade
-///         can be independently recomputed from the same inputs, but that is
-///         accountability, not attestation. `setScorerAddress` is deliberately left
-///         owner-settable so a hardware-attested signer can replace the current one
-///         without migrating this contract or its recorded grades.
+///         key Cifra registered here; it does NOT prove which code produced it. That is
+///         accountability, not attestation, and the difference is not glossed over: the
+///         scorer signs the `modelVersion` and the container `imageDigest` alongside the
+///         grade, and both are recorded here. So a reviewer can pull that exact image,
+///         re-run the published model on the same inputs, and check the result — which
+///         makes the claim falsifiable rather than merely asserted. What it still cannot
+///         prove is that the running container WAS that image; only hardware attestation
+///         can. `setScorerAddress` is deliberately left owner-settable so an attested
+///         signer can replace the current one without migrating this contract or its
+///         recorded grades.
 ///
 ///         Signature scheme: the scorer signs, EIP-191, over
 ///           keccak256(abi.encode("CIFRA_SCORE_RESULT", chainId, resultHash))
@@ -35,6 +39,8 @@ contract CifraAttestationNFT is ERC721 {
         uint32 riskScoreBps; // 0..10000
         uint32 discountRateBps; // base + grade spread
         address scorerSigner; // the scorer identity that signed (audit); non-zero once attested
+        bytes32 modelVersion; // scoring model that produced it, e.g. bytes32("cifra-score-v1")
+        bytes32 imageDigest; // sha256 of the container image that produced it; 0 = unpinned build
     }
 
     /// @dev Domain tag the scoring service prepends when signing a result.
@@ -70,7 +76,9 @@ contract CifraAttestationNFT is ERC721 {
         address indexed supplier,
         bytes32 grade,
         uint32 riskScoreBps,
-        uint32 discountRateBps
+        uint32 discountRateBps,
+        bytes32 modelVersion,
+        bytes32 imageDigest
     );
     event ScorerAddressUpdated(address indexed previousScorer, address indexed newScorer);
     event AttesterUpdated(address indexed previousAttester, address indexed newAttester);
@@ -118,8 +126,9 @@ contract CifraAttestationNFT is ERC721 {
     /// @param invoiceId The registered invoice this grade is for. Must equal the invoiceId the
     ///        scorer bound into `resultData` (audit finding H1).
     /// @param resultData ABI-encoded (bytes32 invoiceId, bytes32 grade, uint256 riskScoreBps,
-    ///        uint256 discountRateBps) as produced by the scoring extension. The leading
-    ///        invoiceId is echoed by the scorer so the signature binds the grade to one invoice.
+    ///        uint256 discountRateBps, bytes32 modelVersion, bytes32 imageDigest) as produced by
+    ///        the scoring service. The leading invoiceId is echoed by the scorer so the signature
+    ///        binds the grade to one invoice; the trailing two bind it to the code that made it.
     /// @param actionId The scoring result id.
     /// @param submissionTag The result submission tag (e.g. "threshold").
     /// @param status The result status (must be 1).
@@ -140,42 +149,56 @@ contract CifraAttestationNFT is ERC721 {
 
         // Decode + validate the signed result (H1 binding + range checks) in a helper to keep
         // this function's stack shallow.
-        (bytes32 grade, uint32 riskBps, uint32 discountBps) = _decodeCheckedGrade(invoiceId, resultData);
+        Grade memory g = _decodeCheckedGrade(invoiceId, resultData);
+        g.scorerSigner = scorerAddress;
 
         tokenId = uint256(invoiceId);
         if (gradeOf[tokenId].scorerSigner != address(0)) revert AlreadyAttested();
 
         address supplier = REGISTRY.getInvoice(invoiceId).supplier;
-        gradeOf[tokenId] = Grade({
-            grade: grade,
-            riskScoreBps: riskBps,
-            discountRateBps: discountBps,
-            scorerSigner: scorerAddress
-        });
+        gradeOf[tokenId] = g;
         _safeMint(supplier, tokenId);
 
-        emit Attested(invoiceId, tokenId, supplier, grade, riskBps, discountBps);
+        emit Attested(
+            invoiceId,
+            tokenId,
+            supplier,
+            g.grade,
+            g.riskScoreBps,
+            g.discountRateBps,
+            g.modelVersion,
+            g.imageDigest
+        );
     }
 
     /// @dev Decode the ABI-encoded signed result and enforce the invoice binding + ranges.
-    ///      (bytes32 invoiceId, bytes32 grade, uint256 riskScoreBps, uint256 discountRateBps)
-    function _decodeCheckedGrade(bytes32 invoiceId, bytes calldata resultData)
-        private
-        pure
-        returns (bytes32 grade, uint32 riskBps, uint32 discountBps)
-    {
-        bytes32 boundInvoiceId;
-        uint256 risk;
-        uint256 discount;
-        (boundInvoiceId, grade, risk, discount) = abi.decode(resultData, (bytes32, bytes32, uint256, uint256));
+    ///      (bytes32 invoiceId, bytes32 grade, uint256 riskScoreBps, uint256 discountRateBps,
+    ///       bytes32 modelVersion, bytes32 imageDigest)
+    ///      `scorerSigner` is left zero here and filled in by the caller.
+    function _decodeCheckedGrade(
+        bytes32 invoiceId,
+        bytes calldata resultData
+    ) private pure returns (Grade memory g) {
+        (
+            bytes32 boundInvoiceId,
+            bytes32 grade,
+            uint256 risk,
+            uint256 discount,
+            bytes32 modelVersion,
+            bytes32 imageDigest
+        ) = abi.decode(resultData, (bytes32, bytes32, uint256, uint256, bytes32, bytes32));
         // H1: the grade is only valid for the invoice the scorer signed it for.
         if (boundInvoiceId != invoiceId) revert InvoiceMismatch();
         if (risk > MAX_BPS) revert ScoreOutOfRange();
         // Bound the discount: prevents a silent uint32 truncation and an underflow in
-        // CifraVault.fundInvoice (advance = face * (BPS - discountRateBps) / BPS).
+        // CifraTrancheController.fundInvoice (advance = face * (BPS - discountRateBps) / BPS).
         if (discount > MAX_BPS) revert DiscountOutOfRange();
-        riskBps = uint32(risk);
-        discountBps = uint32(discount);
+
+        g.grade = grade;
+        g.riskScoreBps = uint32(risk);
+        g.discountRateBps = uint32(discount);
+        g.modelVersion = modelVersion;
+        g.imageDigest = imageDigest;
     }
 
     /// @notice The grade recorded for an invoice (zeroed struct if not yet attested).
