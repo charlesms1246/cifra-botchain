@@ -7,12 +7,12 @@ import {
     CifraTrancheVault,
     CifraInvoiceRegistry,
     CifraAttestationNFT,
-    MockFXRP,
+    MockAsset,
     MockFdcVerifier,
 } from "../typechain-types";
 
 const abi = ethers.AbiCoder.defaultAbiCoder();
-const TEE_ACTION_RESULT = ethers.encodeBytes32String("TEE_ACTION_RESULT");
+const SCORE_RESULT_DOMAIN = ethers.encodeBytes32String("CIFRA_SCORE_RESULT");
 const BPS = 10000n;
 const GRACE = 3 * 24 * 3600;
 const RECEIVER_HASH = ethers.keccak256(ethers.toUtf8Bytes("rCifraProtocolXRPL"));
@@ -22,7 +22,7 @@ async function signResult(wallet: any, resultData: string, actionId: string, tag
         ["bytes32", "bytes32", "bytes32", "uint8"],
         [ethers.keccak256(resultData), actionId, ethers.keccak256(ethers.toUtf8Bytes(tag)), status]
     );
-    const payload = ethers.keccak256(abi.encode(["bytes32", "uint256", "bytes32"], [TEE_ACTION_RESULT, chainId, resultHash]));
+    const payload = ethers.keccak256(abi.encode(["bytes32", "uint256", "bytes32"], [SCORE_RESULT_DOMAIN, chainId, resultHash]));
     return wallet.signMessage(ethers.getBytes(payload));
 }
 
@@ -85,7 +85,7 @@ function nonexistenceProof(opts: { reference: string; destination: string; amoun
 }
 
 describe("CifraSettlement", () => {
-    let fxrp: MockFXRP, registry: CifraInvoiceRegistry, attestation: CifraAttestationNFT;
+    let asset: MockAsset, registry: CifraInvoiceRegistry, attestation: CifraAttestationNFT;
     let controller: CifraTrancheController, senior: CifraTrancheVault, junior: CifraTrancheVault;
     let verifier: MockFdcVerifier, settlement: CifraSettlement;
     let owner: any, keeper: any, funder: any, supplier: any;
@@ -105,23 +105,23 @@ describe("CifraSettlement", () => {
         tee = ethers.Wallet.createRandom();
         chainId = (await ethers.provider.getNetwork()).chainId;
 
-        fxrp = (await (await ethers.getContractFactory("MockFXRP")).deploy()) as unknown as MockFXRP;
+        asset = (await (await ethers.getContractFactory("MockAsset")).deploy("Mock USDT", "USDT", 6)) as unknown as MockAsset;
         registry = (await (await ethers.getContractFactory("CifraInvoiceRegistry")).deploy()) as unknown as CifraInvoiceRegistry;
         attestation = (await (await ethers.getContractFactory("CifraAttestationNFT")).deploy(
             "Cifra Attestation", "CIFRA-ATT", tee.address, await registry.getAddress()
         )) as unknown as CifraAttestationNFT;
         controller = (await (await ethers.getContractFactory("CifraTrancheController")).deploy(
-            await fxrp.getAddress(), await registry.getAddress(), await attestation.getAddress()
+            await asset.getAddress(), await registry.getAddress(), await attestation.getAddress()
         )) as unknown as CifraTrancheController;
         senior = (await (await ethers.getContractFactory("CifraTrancheVault")).deploy(
-            await fxrp.getAddress(), await controller.getAddress(), "Cifra Senior", "cFXRP-S"
+            await asset.getAddress(), await controller.getAddress(), "Cifra Senior", "cFXRP-S"
         )) as unknown as CifraTrancheVault;
         junior = (await (await ethers.getContractFactory("CifraTrancheVault")).deploy(
-            await fxrp.getAddress(), await controller.getAddress(), "Cifra Junior", "cFXRP-J"
+            await asset.getAddress(), await controller.getAddress(), "Cifra Junior", "cFXRP-J"
         )) as unknown as CifraTrancheVault;
         verifier = (await (await ethers.getContractFactory("MockFdcVerifier")).deploy()) as unknown as MockFdcVerifier;
         settlement = (await (await ethers.getContractFactory("CifraSettlement")).deploy(
-            await registry.getAddress(), await controller.getAddress(), await fxrp.getAddress(),
+            await registry.getAddress(), await controller.getAddress(), await asset.getAddress(),
             await verifier.getAddress(), RECEIVER_HASH, GRACE
         )) as unknown as CifraSettlement;
 
@@ -132,8 +132,8 @@ describe("CifraSettlement", () => {
 
         // Funder capitalizes the senior tranche (junior left empty; these tests exercise
         // settlement mechanics, not the waterfall split — asserted in the controller tests).
-        await fxrp.mint(funder.address, deposit);
-        await fxrp.connect(funder).approve(await senior.getAddress(), deposit);
+        await asset.mint(funder.address, deposit);
+        await asset.connect(funder).approve(await senior.getAddress(), deposit);
         await senior.connect(funder).deposit(deposit, funder.address);
 
         // Register, attest, and fund an invoice.
@@ -146,8 +146,8 @@ describe("CifraSettlement", () => {
         await attestation.attest(invoiceId, resultData, actionId, tag, 1, sig);
         await controller.connect(keeper).fundInvoice(invoiceId);
 
-        // The settlement contract holds FXRP representing the buyer's converted payment.
-        await fxrp.mint(await settlement.getAddress(), faceAmount);
+        // The settlement contract holds ASSET representing the buyer's converted payment.
+        await asset.mint(await settlement.getAddress(), faceAmount);
     });
 
     describe("settle", () => {
@@ -159,7 +159,7 @@ describe("CifraSettlement", () => {
 
             expect((await registry.getInvoice(invoiceId)).status).to.equal(3 /* Settled */);
             expect(await controller.nav()).to.equal(deposit + (faceAmount - principal)); // yield realized
-            expect(await fxrp.balanceOf(await settlement.getAddress())).to.equal(0);
+            expect(await asset.balanceOf(await settlement.getAddress())).to.equal(0);
         });
 
         it("rejects an invalid proof", async () => {
@@ -217,10 +217,10 @@ describe("CifraSettlement", () => {
     });
 
     describe("reserve (M3)", () => {
-        it("reserveBalance reflects held FXRP; fundReserve tops up + emits", async () => {
+        it("reserveBalance reflects held ASSET; fundReserve tops up + emits", async () => {
             expect(await settlement.reserveBalance()).to.equal(faceAmount);
-            await fxrp.mint(owner.address, faceAmount);
-            await fxrp.connect(owner).approve(await settlement.getAddress(), faceAmount);
+            await asset.mint(owner.address, faceAmount);
+            await asset.connect(owner).approve(await settlement.getAddress(), faceAmount);
             await expect(settlement.connect(owner).fundReserve(faceAmount))
                 .to.emit(settlement, "ReserveFunded")
                 .withArgs(owner.address, faceAmount, faceAmount * 2n);
@@ -235,7 +235,7 @@ describe("CifraSettlement", () => {
                 .withArgs(0, faceAmount);
         });
 
-        it("withdrawReserve is owner-only and moves FXRP out", async () => {
+        it("withdrawReserve is owner-only and moves ASSET out", async () => {
             await expect(settlement.connect(keeper).withdrawReserve(faceAmount, keeper.address))
                 .to.be.revertedWithCustomError(settlement, "NotOwner");
             await expect(settlement.connect(owner).withdrawReserve(faceAmount, owner.address))

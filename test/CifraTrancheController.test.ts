@@ -6,11 +6,11 @@ import {
     CifraTrancheVault,
     CifraInvoiceRegistry,
     CifraAttestationNFT,
-    MockFXRP,
+    MockAsset,
 } from "../typechain-types";
 
 const abi = ethers.AbiCoder.defaultAbiCoder();
-const TEE_ACTION_RESULT = ethers.encodeBytes32String("TEE_ACTION_RESULT");
+const SCORE_RESULT_DOMAIN = ethers.encodeBytes32String("CIFRA_SCORE_RESULT");
 const BPS = 10000n;
 
 async function signResult(wallet: any, resultData: string, actionId: string, tag: string, status: number, chainId: bigint) {
@@ -18,12 +18,12 @@ async function signResult(wallet: any, resultData: string, actionId: string, tag
         ["bytes32", "bytes32", "bytes32", "uint8"],
         [ethers.keccak256(resultData), actionId, ethers.keccak256(ethers.toUtf8Bytes(tag)), status]
     );
-    const payload = ethers.keccak256(abi.encode(["bytes32", "uint256", "bytes32"], [TEE_ACTION_RESULT, chainId, resultHash]));
+    const payload = ethers.keccak256(abi.encode(["bytes32", "uint256", "bytes32"], [SCORE_RESULT_DOMAIN, chainId, resultHash]));
     return wallet.signMessage(ethers.getBytes(payload));
 }
 
 describe("CifraTrancheController", () => {
-    let fxrp: MockFXRP;
+    let asset: MockAsset;
     let registry: CifraInvoiceRegistry;
     let attestation: CifraAttestationNFT;
     let controller: CifraTrancheController;
@@ -44,7 +44,7 @@ describe("CifraTrancheController", () => {
     // Deploy + wire a fresh stack; deposits are done per-test so the loss cases can vary the
     // junior buffer.
     async function deployStack() {
-        const f = (await (await ethers.getContractFactory("MockFXRP")).deploy()) as unknown as MockFXRP;
+        const f = (await (await ethers.getContractFactory("MockAsset")).deploy("Mock USDT", "USDT", 6)) as unknown as MockAsset;
         const r = (await (await ethers.getContractFactory("CifraInvoiceRegistry")).deploy()) as unknown as CifraInvoiceRegistry;
         const a = (await (await ethers.getContractFactory("CifraAttestationNFT")).deploy(
             "Cifra Attestation", "CIFRA-ATT", tee.address, await r.getAddress()
@@ -66,8 +66,8 @@ describe("CifraTrancheController", () => {
     }
 
     async function depositInto(vault: CifraTrancheVault, funder: any, amount: bigint) {
-        await fxrp.mint(funder.address, amount);
-        await fxrp.connect(funder).approve(await vault.getAddress(), amount);
+        await asset.mint(funder.address, amount);
+        await asset.connect(funder).approve(await vault.getAddress(), amount);
         await vault.connect(funder).deposit(amount, funder.address);
     }
 
@@ -87,7 +87,7 @@ describe("CifraTrancheController", () => {
         chainId = (await ethers.provider.getNetwork()).chainId;
 
         const s = await deployStack();
-        fxrp = s.f;
+        asset = s.f;
         registry = s.r;
         attestation = s.a;
         controller = s.c;
@@ -106,8 +106,8 @@ describe("CifraTrancheController", () => {
         expect(await controller.nav()).to.equal(seniorDep + juniorDep);
         expect(await senior.totalAssets()).to.equal(seniorDep);
         expect(await junior.totalAssets()).to.equal(juniorDep);
-        // Pool holds all the FXRP; nothing deployed yet.
-        expect(await fxrp.balanceOf(await controller.getAddress())).to.equal(seniorDep + juniorDep);
+        // Pool holds all the ASSET; nothing deployed yet.
+        expect(await asset.balanceOf(await controller.getAddress())).to.equal(seniorDep + juniorDep);
         expect(await controller.totalDeployed()).to.equal(0);
     });
 
@@ -119,7 +119,7 @@ describe("CifraTrancheController", () => {
             .to.emit(controller, "Funded")
             .withArgs(invoiceId, supplier.address, principal, faceAmount);
 
-        expect(await fxrp.balanceOf(supplier.address)).to.equal(principal);
+        expect(await asset.balanceOf(supplier.address)).to.equal(principal);
         expect(await controller.totalDeployed()).to.equal(principal);
         // NAV and each tranche claim unchanged — pool down, deployed up.
         expect(await controller.nav()).to.equal(seniorDep + juniorDep);
@@ -134,10 +134,10 @@ describe("CifraTrancheController", () => {
         await controller.connect(operator).fundInvoice(invoiceId);
 
         // Operator (standing in for settlement) repays face value.
-        await fxrp.mint(operator.address, faceAmount);
-        await fxrp.connect(operator).approve(await controller.getAddress(), faceAmount);
+        await asset.mint(operator.address, faceAmount);
+        await asset.connect(operator).approve(await controller.getAddress(), faceAmount);
 
-        const yieldAmt = faceAmount - principal; // 600 FXRP
+        const yieldAmt = faceAmount - principal; // 600 ASSET
         const seniorCut = (yieldAmt * 5000n) / BPS; // 300
         const juniorCut = yieldAmt - seniorCut; // 300
         await expect(controller.connect(operator).recordRepayment(invoiceId))
@@ -159,8 +159,8 @@ describe("CifraTrancheController", () => {
         const invoiceId = await registerAndAttest("INV-3070", 600);
         const principal = (faceAmount * (BPS - 600n)) / BPS;
         await controller.connect(operator).fundInvoice(invoiceId);
-        await fxrp.mint(operator.address, faceAmount);
-        await fxrp.connect(operator).approve(await controller.getAddress(), faceAmount);
+        await asset.mint(operator.address, faceAmount);
+        await asset.connect(operator).approve(await controller.getAddress(), faceAmount);
 
         const yieldAmt = faceAmount - principal; // 600
         const seniorCut = (yieldAmt * 3000n) / BPS; // 180
@@ -192,7 +192,7 @@ describe("CifraTrancheController", () => {
     it("default: loss overflows a thin junior buffer into senior (subordination)", async () => {
         // Fresh stack with a junior buffer smaller than the principal.
         const s = await deployStack();
-        fxrp = s.f;
+        asset = s.f;
         registry = s.r;
         attestation = s.a;
         controller = s.c;
@@ -250,7 +250,7 @@ describe("CifraTrancheController", () => {
         // LESS than the junior tranche's own claim — otherwise ERC-4626's max-withdraw check
         // fires before the controller's liquidity guard is reached.
         const s = await deployStack();
-        fxrp = s.f;
+        asset = s.f;
         registry = s.r;
         attestation = s.a;
         controller = s.c;
@@ -281,7 +281,7 @@ describe("CifraTrancheController", () => {
         junior = s.j;
         registry = s.r;
         attestation = s.a;
-        fxrp = s.f;
+        asset = s.f;
         await depositInto(senior, sFunder, ethers.parseUnits("100", 6)); // tiny pool
         dueDate = (await time.latest()) + 30 * 24 * 3600;
 
@@ -295,8 +295,8 @@ describe("CifraTrancheController", () => {
         await expect(controller.connect(other).pause()).to.be.revertedWithCustomError(controller, "NotOwner");
         await controller.connect(owner).pause();
 
-        await fxrp.mint(sFunder.address, seniorDep);
-        await fxrp.connect(sFunder).approve(await senior.getAddress(), seniorDep);
+        await asset.mint(sFunder.address, seniorDep);
+        await asset.connect(sFunder).approve(await senior.getAddress(), seniorDep);
         await expect(senior.connect(sFunder).deposit(seniorDep, sFunder.address)).to.be.revertedWithCustomError(controller, "EnforcedPause");
         await expect(controller.connect(operator).fundInvoice(invoiceId)).to.be.revertedWithCustomError(controller, "EnforcedPause");
 

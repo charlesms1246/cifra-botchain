@@ -13,7 +13,7 @@ async function main() {
     const registry = await ethers.getContractAt("CifraInvoiceRegistry", dep.contracts.CifraInvoiceRegistry);
     const attestation = await ethers.getContractAt("CifraAttestationNFT", dep.contracts.CifraAttestationNFT);
 
-    console.log(`NFT teeAddress (attester binds to this): ${await attestation.teeAddress()}\n`);
+    console.log(`NFT scorerAddress (attester binds to this): ${await attestation.scorerAddress()}\n`);
 
     const url = `${EXPLORER}/api?module=logs&action=getLogs&fromBlock=33610000&toBlock=latest&address=${dep.contracts.CifraInvoiceRegistry}&topic0=${TOPIC0}`;
     const j = await (await fetch(url)).json();
@@ -23,7 +23,7 @@ async function main() {
     for (const id of ids) {
         const inv = await registry.getInvoice(id);
         const grade = await attestation.gradeForInvoice(id);
-        const attested = grade.teeSigner !== ZERO;
+        const attested = grade.scorerSigner !== ZERO;
         if (inv.status === 1n && !attested) {
             console.log(`  UNSCORED  ${id}  face ${ethers.formatUnits(inv.faceAmount, 6)} FXRP  supplier ${inv.supplier.slice(0, 10)}…`);
         }

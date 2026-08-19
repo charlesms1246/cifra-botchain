@@ -73,8 +73,8 @@ async function main() {
         console.log(`deposited ${ethers.formatUnits(need, 6)} FXRP into senior tranche for liquidity`);
     }
 
-    if ((await attestation.teeAddress()) !== ethers.getAddress(inputs.signerEip191))
-        await (await attestation.setTeeAddress(ethers.getAddress(inputs.signerEip191))).wait();
+    if ((await attestation.scorerAddress()) !== ethers.getAddress(inputs.signerEip191))
+        await (await attestation.setScorerAddress(ethers.getAddress(inputs.signerEip191))).wait();
     await (await attestation.attest(invoiceId, inputs.resultData, inputs.actionId, inputs.submissionTag, inputs.status, normalizeV(inputs.signature))).wait();
     console.log(`attested grade ${inputs.grade} (real TEE ${inputs.signerEip191})`);
 

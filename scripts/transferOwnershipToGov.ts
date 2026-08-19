@@ -4,7 +4,7 @@ import * as path from "path";
 
 // Transfer `owner` of the Cifra contracts to the 2-of-3 governance Safe (deployGovSafe.ts).
 // Owner = protocol-parameter governance (setSettlement, setSeniorYieldShareBps,
-// setProtocolReceiverHash, setTeeAddress, setAttester, pause, transferOwnership). The
+// setProtocolReceiverHash, setScorerAddress, setAttester, pause, transferOwnership). The
 // `operator` (fundInvoice) and `attester` (attest) hot roles deliberately STAY with the keeper
 // EOA — bounded operational keys, the correct production split. Run once, as the current owner.
 //   FLARE_RPC_API_KEY="" npx hardhat run scripts/transferOwnershipToGov.ts --network coston2

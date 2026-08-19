@@ -33,16 +33,16 @@ async function main() {
     const registry = await ethers.getContractAt("CifraInvoiceRegistry", dep.contracts.CifraInvoiceRegistry);
     const attestation = await ethers.getContractAt("CifraAttestationNFT", dep.contracts.CifraAttestationNFT);
 
-    const teeSigner = ethers.getAddress(inputs.signerEip191);
-    console.log(`TEE signer (EIP-191, == machine id): ${teeSigner}`);
+    const scorerSigner = ethers.getAddress(inputs.signerEip191);
+    console.log(`Scorer signer (EIP-191): ${scorerSigner}`);
     console.log(`Enclave grade: ${inputs.grade} / risk ${inputs.riskBps} / discount ${inputs.discountBps}\n`);
 
     // 1. Point the attestation at the live TEE identity (owner-only; idempotent).
-    if ((await attestation.teeAddress()) !== teeSigner) {
-        await (await attestation.setTeeAddress(teeSigner)).wait();
-        console.log(`setTeeAddress(${teeSigner}) ✓`);
+    if ((await attestation.scorerAddress()) !== scorerSigner) {
+        await (await attestation.setScorerAddress(scorerSigner)).wait();
+        console.log(`setScorerAddress(${scorerSigner}) ✓`);
     } else {
-        console.log(`teeAddress already set ✓`);
+        console.log(`scorerAddress already set ✓`);
     }
 
     // 2. Register the invoice this grade is for.
@@ -78,7 +78,7 @@ async function main() {
     const tokenId = BigInt(invoiceId);
     console.log(`  NFT tokenId owner: ${await attestation.ownerOf(tokenId)} (== supplier ${signer.address})`);
     console.log(`  recorded grade:    ${ethers.decodeBytes32String(g.grade)} / risk ${g.riskScoreBps} / discount ${g.discountRateBps}`);
-    console.log(`  teeSigner on NFT:  ${g.teeSigner}`);
+    console.log(`  scorerSigner on NFT:  ${g.scorerSigner}`);
 
     const gradeStr = ethers.decodeBytes32String(g.grade);
     if (gradeStr !== inputs.grade || Number(g.riskScoreBps) !== inputs.riskBps || Number(g.discountRateBps) !== inputs.discountBps) {

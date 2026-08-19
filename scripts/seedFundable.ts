@@ -53,8 +53,8 @@ async function main() {
     console.log(`invoice status ${inv.status} (not Registered) — nothing to do.`);
     return;
   }
-  if ((await attestation.teeAddress()) !== ethers.getAddress(inputs.signerEip191))
-    await (await attestation.setTeeAddress(ethers.getAddress(inputs.signerEip191))).wait();
+  if ((await attestation.scorerAddress()) !== ethers.getAddress(inputs.signerEip191))
+    await (await attestation.setScorerAddress(ethers.getAddress(inputs.signerEip191))).wait();
   await (await attestation.attest(invoiceId, inputs.resultData, inputs.actionId, inputs.submissionTag, inputs.status, normalizeV(inputs.signature))).wait();
   console.log(`✅ attested grade ${inputs.grade} — invoice ${invoiceId} is Registered + attested (fundable).`);
   console.log(`   It will appear in the marketplace with an active Fund button for the vault operator.`);

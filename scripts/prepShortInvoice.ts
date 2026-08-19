@@ -55,7 +55,7 @@ async function main() {
         await (await (fxrp as any).approve(await senior.getAddress(), need)).wait();
         await (await senior.deposit(need, me.address)).wait();
     }
-    // teeAddress already set via Safe; attester = keeper (deployer), so attest directly.
+    // scorerAddress already set via Safe; attester = keeper (deployer), so attest directly.
     await (await attestation.attest(invoiceId, inputs.resultData, inputs.actionId, inputs.submissionTag, inputs.status, normalizeV(inputs.signature))).wait();
     await (await controller.fundInvoice(invoiceId)).wait();
     console.log(`Run 2: attested grade ${inputs.grade} + funded (advance ${ethers.formatUnits(advance, 6)} FXRP), status ${(await registry.getInvoice(invoiceId)).status} (2=Funded). Due @ ${st.dueDate}.`);

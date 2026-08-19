@@ -9,26 +9,31 @@ import { CifraInvoiceRegistry } from "./CifraInvoiceRegistry.sol";
 import { CifraAttestationNFT } from "./CifraAttestationNFT.sol";
 
 /// @title CifraTrancheController
-/// @notice The FXRP funding engine for a senior/junior tranche structure. This contract holds
-///         all pooled FXRP and runs the funding + repayment/default waterfall; two thin
-///         ERC-4626 `CifraTrancheVault` share classes (senior + junior) sit in front of it and
-///         report `totalAssets() == claimOf(vault)`. It supersedes the single-tranche
-///         `CifraVault` — the funding/settlement logic is identical, but NAV is now split
-///         across two claims with a waterfall:
+/// @notice The funding engine for a senior/junior tranche structure over ONE settlement asset.
+///         This contract holds all pooled assets and runs the funding + repayment/default
+///         waterfall; two thin ERC-4626 `CifraTrancheVault` share classes (senior + junior) sit
+///         in front of it and report `totalAssets() == claimOf(vault)`. NAV is split across two
+///         claims with a waterfall:
 ///
 ///           - REPAYMENT (yield = face − principal): senior takes `seniorYieldShareBps` of the
 ///             yield, junior takes the residual (its reward for taking first loss).
 ///           - DEFAULT (loss = principal): junior's claim absorbs the loss first, down to zero,
 ///             and only the overflow reduces senior's claim (subordination).
 ///
-///         NAV accounting mirrors the single vault (`NAV = idle FXRP + outstanding principal`),
-///         maintained as the invariant:
+///         NAV accounting invariant (`NAV = idle assets + outstanding principal`):
 ///
-///           FXRP.balanceOf(this) + totalDeployed  ==  assetsOf[senior] + assetsOf[junior]
+///           ASSET.balanceOf(this) + totalDeployed  ==  assetsOf[senior] + assetsOf[junior]
 ///
-///         Funding moves FXRP out of the pool into `totalDeployed` (NAV flat); repayment moves it
-///         back plus yield; default removes it. The tranche vaults are the only callers permitted
-///         to move the per-tranche claims via deposits/withdrawals.
+///         Funding moves assets out of the pool into `totalDeployed` (NAV flat); repayment moves
+///         them back plus yield; default removes them. The tranche vaults are the only callers
+///         permitted to move the per-tranche claims via deposits/withdrawals.
+///
+///         SINGLE-ASSET BY DESIGN. `ASSET` is immutable and nothing here ever converts between
+///         assets: an invoice is faced, funded and repaid in the same token. Cifra runs one
+///         instance of this stack per settlement asset (a "book"). That is what keeps FX risk
+///         out of the loan book entirely — a funder who deposits a volatile asset has chosen
+///         that exposure, and no price oracle is consulted on any path where money moves.
+///         See claude-docs/DECISIONS.md D3.2.
 contract CifraTrancheController is ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
@@ -42,14 +47,15 @@ contract CifraTrancheController is ReentrancyGuard, Pausable {
     struct Funding {
         address supplier;
         uint256 faceAmount; // repayment expected at settlement
-        uint256 principal; // FXRP advanced now (carrying value while Outstanding)
+        uint256 principal; // assets advanced now (carrying value while Outstanding)
         uint64 dueDate;
         FundingStatus status;
     }
 
     uint256 private constant BPS = 10000;
 
-    IERC20 public immutable FXRP;
+    /// @notice The single settlement asset of this book (USDT, or WBOT for the native book).
+    IERC20 public immutable ASSET;
     CifraInvoiceRegistry public immutable REGISTRY;
     CifraAttestationNFT public immutable ATTESTATION;
 
@@ -58,7 +64,7 @@ contract CifraTrancheController is ReentrancyGuard, Pausable {
     address public seniorVault;
     address public juniorVault;
 
-    /// @notice Per-tranche waterfall claim on NAV (in FXRP units). `assetsOf[vault]` is exactly
+    /// @notice Per-tranche waterfall claim on NAV (in ASSET units). `assetsOf[vault]` is exactly
     ///         the value that tranche's `totalAssets()` returns, so its share price = claim/shares.
     mapping(address => uint256) public assetsOf;
 
@@ -73,7 +79,7 @@ contract CifraTrancheController is ReentrancyGuard, Pausable {
     address public owner;
     /// @notice Address permitted to deploy capital (fundInvoice) — a keeper/EOA.
     address public operator;
-    /// @notice CifraSettlement contract, permitted to record repayment/default from FDC proofs.
+    /// @notice CifraSettlement contract, permitted to record repayment/default.
     address public settlement;
 
     event TrancheVaultsSet(address indexed seniorVault, address indexed juniorVault);
@@ -120,10 +126,10 @@ contract CifraTrancheController is ReentrancyGuard, Pausable {
         _;
     }
 
-    constructor(IERC20 fxrp_, CifraInvoiceRegistry registry_, CifraAttestationNFT attestation_) {
-        if (address(fxrp_) == address(0) || address(registry_) == address(0) || address(attestation_) == address(0))
+    constructor(IERC20 asset_, CifraInvoiceRegistry registry_, CifraAttestationNFT attestation_) {
+        if (address(asset_) == address(0) || address(registry_) == address(0) || address(attestation_) == address(0))
             revert ZeroAddress();
-        FXRP = fxrp_;
+        ASSET = asset_;
         REGISTRY = registry_;
         ATTESTATION = attestation_;
         owner = msg.sender;
@@ -134,8 +140,8 @@ contract CifraTrancheController is ReentrancyGuard, Pausable {
 
     // --- Tranche vault hooks (only the two registered vaults) ---
 
-    /// @notice Credit a tranche's claim after it has moved `assets` FXRP into this pool.
-    /// @dev The tranche vault transfers the depositor's FXRP straight to this contract (the
+    /// @notice Credit a tranche's claim after it has moved `assets` into this pool.
+    /// @dev The tranche vault transfers the depositor's assets straight to this contract (the
     ///      depositor approved the vault), then calls this to record the claim. Trusting the
     ///      registered vaults is the same trust as owner-setting them; no external call here.
     function creditDeposit(uint256 assets) external onlyTranche whenNotPaused {
@@ -143,20 +149,20 @@ contract CifraTrancheController is ReentrancyGuard, Pausable {
         emit Deposited(msg.sender, assets);
     }
 
-    /// @notice Debit a tranche's claim and pay `assets` FXRP out to `receiver` on withdrawal.
+    /// @notice Debit a tranche's claim and pay `assets` out to `receiver` on withdrawal.
     /// @dev Withdrawals are bounded by idle pool liquidity: funders cannot pull capital that is
     ///      currently advanced to invoices (`totalDeployed`). Not pausable — funders can always
     ///      exit up to available liquidity.
     function debitWithdraw(address receiver, uint256 assets) external onlyTranche nonReentrant {
-        if (FXRP.balanceOf(address(this)) < assets) revert InsufficientLiquidity();
+        if (ASSET.balanceOf(address(this)) < assets) revert InsufficientLiquidity();
         assetsOf[msg.sender] -= assets;
-        FXRP.safeTransfer(receiver, assets);
+        ASSET.safeTransfer(receiver, assets);
         emit Withdrawn(msg.sender, receiver, assets);
     }
 
     // --- Funding + waterfall ---
 
-    /// @notice Advance discounted FXRP from the pool to a registered, attested invoice's supplier.
+    /// @notice Advance discounted assets from the pool to a registered, attested invoice's supplier.
     function fundInvoice(bytes32 invoiceId) external onlyOperator nonReentrant whenNotPaused {
         if (!REGISTRY.exists(invoiceId)) revert NotRegistered();
         if (fundingOf[invoiceId].status != FundingStatus.None) revert AlreadyFunded();
@@ -165,10 +171,10 @@ contract CifraTrancheController is ReentrancyGuard, Pausable {
         if (inv.status != CifraInvoiceRegistry.Status.Registered) revert InvoiceNotFundable();
 
         CifraAttestationNFT.Grade memory grade = ATTESTATION.gradeForInvoice(invoiceId);
-        if (grade.teeSigner == address(0)) revert NotAttested();
+        if (grade.scorerSigner == address(0)) revert NotAttested();
 
         uint256 principal = (inv.faceAmount * (BPS - grade.discountRateBps)) / BPS;
-        if (FXRP.balanceOf(address(this)) < principal) revert InsufficientLiquidity();
+        if (ASSET.balanceOf(address(this)) < principal) revert InsufficientLiquidity();
 
         fundingOf[invoiceId] = Funding({
             supplier: inv.supplier,
@@ -180,12 +186,12 @@ contract CifraTrancheController is ReentrancyGuard, Pausable {
         totalDeployed += principal;
 
         REGISTRY.setStatus(invoiceId, CifraInvoiceRegistry.Status.Funded);
-        FXRP.safeTransfer(inv.supplier, principal);
+        ASSET.safeTransfer(inv.supplier, principal);
 
         emit Funded(invoiceId, inv.supplier, principal, inv.faceAmount);
     }
 
-    /// @notice Record repayment: the caller transfers `faceAmount` FXRP into the pool (must have
+    /// @notice Record repayment: the caller transfers `faceAmount` of ASSET into the pool (must have
     ///         approved it). Realizes yield = face − principal, split senior/junior by
     ///         `seniorYieldShareBps` (senior first, junior residual).
     function recordRepayment(bytes32 invoiceId) external onlySettler nonReentrant {
@@ -196,7 +202,7 @@ contract CifraTrancheController is ReentrancyGuard, Pausable {
         totalDeployed -= f.principal;
 
         REGISTRY.setStatus(invoiceId, CifraInvoiceRegistry.Status.Settled);
-        FXRP.safeTransferFrom(msg.sender, address(this), f.faceAmount);
+        ASSET.safeTransferFrom(msg.sender, address(this), f.faceAmount);
 
         uint256 yieldAmount = f.faceAmount - f.principal;
         uint256 seniorYield = (yieldAmount * seniorYieldShareBps) / BPS;
@@ -236,7 +242,7 @@ contract CifraTrancheController is ReentrancyGuard, Pausable {
         return assetsOf[tranche];
     }
 
-    /// @notice Total vault NAV in FXRP (idle pool + outstanding principal == senior + junior claims).
+    /// @notice Total book NAV in ASSET units (idle pool + outstanding principal == senior + junior).
     function nav() external view returns (uint256) {
         return assetsOf[seniorVault] + assetsOf[juniorVault];
     }

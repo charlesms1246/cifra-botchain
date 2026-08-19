@@ -8,9 +8,9 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { CifraTrancheController } from "./CifraTrancheController.sol";
 
 /// @title CifraTrancheVault
-/// @notice A single ERC-4626 tranche share class (senior or junior) over the shared FXRP pool
-///         held by `CifraTrancheController`. Funders deposit FXRP and receive tranche shares;
-///         the underlying FXRP lives in the controller, so this vault holds no funds itself —
+/// @notice A single ERC-4626 tranche share class (senior or junior) over the shared asset pool
+///         held by `CifraTrancheController`. Funders deposit the book's asset and receive tranche
+///         shares; the underlying assets live in the controller, so this vault holds no funds —
 ///         its `totalAssets()` is the controller's waterfall claim for this tranche, which makes
 ///         the share price move as the waterfall realizes yield (repayment) or loss (default).
 ///
@@ -24,11 +24,11 @@ contract CifraTrancheVault is ERC4626 {
     error ZeroAddress();
 
     constructor(
-        IERC20 fxrp_,
+        IERC20 asset_,
         CifraTrancheController controller_,
         string memory name_,
         string memory symbol_
-    ) ERC20(name_, symbol_) ERC4626(fxrp_) {
+    ) ERC20(name_, symbol_) ERC4626(asset_) {
         if (address(controller_) == address(0)) revert ZeroAddress();
         CONTROLLER = controller_;
     }
@@ -39,12 +39,13 @@ contract CifraTrancheVault is ERC4626 {
     }
 
     /// @dev Inflation-attack mitigation for a fresh deploy (virtual shares scale by 10**offset).
-    ///      Share decimals become asset decimals (6) + offset.
+    ///      Share decimals become asset decimals + offset, so this is decimals-agnostic: a USDT
+    ///      book (6) yields 9-decimal shares, a WBOT book (18) yields 21.
     function _decimalsOffset() internal pure override returns (uint8) {
         return 3;
     }
 
-    /// @dev Route the deposit's FXRP straight into the controller pool (the depositor approved
+    /// @dev Route the deposit's assets straight into the controller pool (the depositor approved
     ///      THIS vault), then record the tranche claim. Pausing is enforced controller-side in
     ///      `creditDeposit`, so an emergency stop covers both tranches at once.
     function _deposit(address caller, address receiver, uint256 assets, uint256 shares) internal override {
@@ -54,7 +55,7 @@ contract CifraTrancheVault is ERC4626 {
         emit Deposit(caller, receiver, assets, shares);
     }
 
-    /// @dev Burn shares, then have the controller pay the FXRP out of the pool to `receiver`
+    /// @dev Burn shares, then have the controller pay the assets out of the pool to `receiver`
     ///      (bounded by idle liquidity — advanced capital can't be withdrawn until it returns).
     function _withdraw(
         address caller,

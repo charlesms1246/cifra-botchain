@@ -30,8 +30,8 @@ async function main() {
     const inv = await registry.getInvoice(invoiceId);
     if (inv.status !== 1n) { console.log(`invoice status ${inv.status} — already attested/funded; nothing to do.`); return; }
 
-    if ((await attestation.teeAddress()).toLowerCase() !== inputs.signerEip191.toLowerCase())
-        throw new Error(`NFT teeAddress != score signer ${inputs.signerEip191}. Set it via the Safe first:\n  SAFE_TO=${dep.contracts.CifraAttestationNFT} SAFE_DATA=$(node -e "…setTeeAddress(${inputs.signerEip191})…") npx hardhat run scripts/safeExec.ts --network coston2`);
+    if ((await attestation.scorerAddress()).toLowerCase() !== inputs.signerEip191.toLowerCase())
+        throw new Error(`NFT scorerAddress != score signer ${inputs.signerEip191}. Set it via the Safe first:\n  SAFE_TO=${dep.contracts.CifraAttestationNFT} SAFE_DATA=$(node -e "…setScorerAddress(${inputs.signerEip191})…") npx hardhat run scripts/safeExec.ts --network coston2`);
 
     await (await attestation.attest(invoiceId, inputs.resultData, inputs.actionId, inputs.submissionTag, inputs.status, normalizeV(inputs.signature))).wait();
     console.log(`attested grade ${inputs.grade} (real TEE ${inputs.signerEip191})`);

@@ -4,7 +4,7 @@ import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { CifraAttestationNFT, CifraInvoiceRegistry } from "../typechain-types";
 
 const abi = ethers.AbiCoder.defaultAbiCoder();
-const TEE_ACTION_RESULT = ethers.encodeBytes32String("TEE_ACTION_RESULT");
+const SCORE_RESULT_DOMAIN = ethers.encodeBytes32String("CIFRA_SCORE_RESULT");
 
 // Build the ABI-encoded (bytes32 grade, uint256 riskBps, uint256 discountBps) result the
 // scoring extension produces.
@@ -28,7 +28,7 @@ async function signResult(
         ["bytes32", "bytes32", "bytes32", "uint8"],
         [ethers.keccak256(resultData), actionId, ethers.keccak256(ethers.toUtf8Bytes(submissionTag)), status]
     );
-    const payload = ethers.keccak256(abi.encode(["bytes32", "uint256", "bytes32"], [TEE_ACTION_RESULT, chainId, resultHash]));
+    const payload = ethers.keccak256(abi.encode(["bytes32", "uint256", "bytes32"], [SCORE_RESULT_DOMAIN, chainId, resultHash]));
     return wallet.signMessage(ethers.getBytes(payload));
 }
 
@@ -82,7 +82,7 @@ describe("CifraAttestationNFT", () => {
         expect(g.grade).to.equal(ethers.encodeBytes32String("A"));
         expect(g.riskScoreBps).to.equal(9900);
         expect(g.discountRateBps).to.equal(600);
-        expect(g.teeSigner).to.equal(tee.address);
+        expect(g.scorerSigner).to.equal(tee.address);
     });
 
     it("rejects a signature from the wrong key", async () => {
@@ -90,7 +90,7 @@ describe("CifraAttestationNFT", () => {
         const badSig = await signResult(other, resultData, actionId, submissionTag, 1, chainId);
         await expect(
             nft.attest(invoiceId, resultData, actionId, submissionTag, 1, badSig)
-        ).to.be.revertedWithCustomError(nft, "BadTeeSignature");
+        ).to.be.revertedWithCustomError(nft, "BadScorerSignature");
     });
 
     it("rejects tampered result data (signature no longer matches)", async () => {
@@ -99,7 +99,7 @@ describe("CifraAttestationNFT", () => {
         const tampered = encodeResult(invoiceId, "A", 100, 600); // downgrade risk without re-signing
         await expect(
             nft.attest(invoiceId, tampered, actionId, submissionTag, 1, sig)
-        ).to.be.revertedWithCustomError(nft, "BadTeeSignature");
+        ).to.be.revertedWithCustomError(nft, "BadScorerSignature");
     });
 
     it("rejects non-success status", async () => {
@@ -168,10 +168,10 @@ describe("CifraAttestationNFT", () => {
     });
 
     it("only owner can update the TEE address", async () => {
-        await expect(nft.connect(other).setTeeAddress(other.address)).to.be.revertedWithCustomError(nft, "NotOwner");
+        await expect(nft.connect(other).setScorerAddress(other.address)).to.be.revertedWithCustomError(nft, "NotOwner");
         const newTee = ethers.Wallet.createRandom();
-        await nft.connect(owner).setTeeAddress(newTee.address);
-        expect(await nft.teeAddress()).to.equal(newTee.address);
+        await nft.connect(owner).setScorerAddress(newTee.address);
+        expect(await nft.scorerAddress()).to.equal(newTee.address);
 
         // A result signed by the new TEE now verifies.
         const resultData = encodeResult(invoiceId, "A", 9900, 600);

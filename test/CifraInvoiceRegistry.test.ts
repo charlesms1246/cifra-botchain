@@ -12,7 +12,7 @@ describe("CifraInvoiceRegistry", () => {
 
     const buyerCommitment = ethers.keccak256(ethers.toUtf8Bytes("buyer:acme-corp"));
     const ref = ethers.keccak256(ethers.toUtf8Bytes("INV-2026-001"));
-    const faceAmount = ethers.parseUnits("10000", 6); // 10,000 FXRP (6 dp) — units are arbitrary here
+    const faceAmount = ethers.parseUnits("10000", 6); // 10,000 ASSET (6 dp) — units are arbitrary here
     let dueDate: number;
 
     beforeEach(async () => {

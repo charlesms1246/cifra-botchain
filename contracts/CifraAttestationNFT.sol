@@ -7,30 +7,38 @@ import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/Mes
 import { CifraInvoiceRegistry } from "./CifraInvoiceRegistry.sol";
 
 /// @title CifraAttestationNFT
-/// @notice Holds the TEE-signed risk grade for a registered invoice as an ERC-721.
-///         The grade is produced privately inside the Cifra Compute Extension; only
-///         the signed result reaches the chain. This contract verifies that signature
-///         against the registered TEE identity and records the grade — it is the
-///         on-chain consumer of the scoring extension's output.
+/// @notice Holds the signed risk grade for a registered invoice as an ERC-721.
+///         The grade is produced off-chain by Cifra's scoring service, which runs a
+///         published, reproducible model over data that never reaches the chain. This
+///         contract verifies the service's signature against the registered scorer
+///         identity, checks the grade was signed for THIS invoice, and records it.
 ///
-///         Signature scheme matches the tee-node exactly (see Flare's fce-weather-insurance
-///         `settle()`): the node signs, EIP-191, over
-///           keccak256(abi.encode("TEE_ACTION_RESULT", chainId, resultHash))
+///         TRUST MODEL — stated plainly. The signature proves the grade came from the
+///         key Cifra registered here; it does NOT prove which code produced it. The
+///         model source and the service's container digest are published so a grade
+///         can be independently recomputed from the same inputs, but that is
+///         accountability, not attestation. `setScorerAddress` is deliberately left
+///         owner-settable so a hardware-attested signer can replace the current one
+///         without migrating this contract or its recorded grades.
+///
+///         Signature scheme: the scorer signs, EIP-191, over
+///           keccak256(abi.encode("CIFRA_SCORE_RESULT", chainId, resultHash))
 ///         where
 ///           resultHash = keccak256(abi.encodePacked(
 ///               keccak256(resultData), actionId, keccak256(bytes(submissionTag)), status))
-///         Only successful results (status == 1) are accepted.
+///         Binding chainId into the payload stops a grade signed for one network being
+///         replayed on another. Only successful results (status == 1) are accepted.
 contract CifraAttestationNFT is ERC721 {
     /// @notice The signed risk grade recorded for an invoice.
     struct Grade {
         bytes32 grade; // bytes32("A" | "B" | "C" | "D")
         uint32 riskScoreBps; // 0..10000
         uint32 discountRateBps; // base + grade spread
-        address teeSigner; // the TEE identity that signed (audit); non-zero once attested
+        address scorerSigner; // the scorer identity that signed (audit); non-zero once attested
     }
 
-    /// @dev Domain tag the tee-node prepends when signing an ActionResult.
-    bytes32 private constant TEE_ACTION_RESULT = bytes32("TEE_ACTION_RESULT");
+    /// @dev Domain tag the scoring service prepends when signing a result.
+    bytes32 private constant SCORE_RESULT_DOMAIN = bytes32("CIFRA_SCORE_RESULT");
 
     /// @dev Successful ActionResult status.
     uint8 private constant STATUS_SUCCESS = 1;
@@ -40,18 +48,17 @@ contract CifraAttestationNFT is ERC721 {
 
     CifraInvoiceRegistry public immutable REGISTRY;
 
-    /// @notice The registered TEE identity whose signatures are accepted.
-    address public teeAddress;
+    /// @notice The registered scorer identity whose signatures are accepted.
+    address public scorerAddress;
     address public owner;
 
     /// @notice Address permitted to submit attestations (the protocol keeper).
     ///
-    ///         INTERIM binding control (audit finding H1): the TEE signs over the scoring
-    ///         result but not the invoiceId, so a validly-signed grade could otherwise be
-    ///         paired with an unrelated invoice. Until the invoiceId is bound into the
-    ///         signed payload itself, `attest` is restricted to this keeper, which is
-    ///         responsible for matching each result to its invoice. Set to the owner at
-    ///         deploy; updatable by the owner.
+    ///         Defence in depth (audit finding H1). The invoiceId is now bound into the
+    ///         signed payload itself and enforced in `_decodeCheckedGrade`, so a grade can
+    ///         no longer be re-paired with an unrelated invoice. This keeper restriction
+    ///         is retained as a second gate on who may submit results at all. Set to the
+    ///         owner at deploy; updatable by the owner.
     address public attester;
 
     /// @notice tokenId (== uint256(invoiceId)) => recorded grade.
@@ -65,7 +72,7 @@ contract CifraAttestationNFT is ERC721 {
         uint32 riskScoreBps,
         uint32 discountRateBps
     );
-    event TeeAddressUpdated(address indexed previousTee, address indexed newTee);
+    event ScorerAddressUpdated(address indexed previousScorer, address indexed newScorer);
     event AttesterUpdated(address indexed previousAttester, address indexed newAttester);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
@@ -74,7 +81,7 @@ contract CifraAttestationNFT is ERC721 {
     error ZeroAddress();
     error UnknownInvoice();
     error ResultNotSuccessful();
-    error BadTeeSignature();
+    error BadScorerSignature();
     error AlreadyAttested();
     error ScoreOutOfRange();
     error DiscountOutOfRange();
@@ -92,31 +99,31 @@ contract CifraAttestationNFT is ERC721 {
     constructor(
         string memory name_,
         string memory symbol_,
-        address teeAddress_,
+        address scorerAddress_,
         CifraInvoiceRegistry registry_
     ) ERC721(name_, symbol_) {
-        if (teeAddress_ == address(0)) revert ZeroAddress();
+        if (scorerAddress_ == address(0)) revert ZeroAddress();
         if (address(registry_) == address(0) || address(registry_).code.length == 0) revert ZeroAddress();
-        teeAddress = teeAddress_;
+        scorerAddress = scorerAddress_;
         REGISTRY = registry_;
         owner = msg.sender;
         attester = msg.sender;
-        emit TeeAddressUpdated(address(0), teeAddress_);
+        emit ScorerAddressUpdated(address(0), scorerAddress_);
         emit AttesterUpdated(address(0), msg.sender);
         emit OwnershipTransferred(address(0), msg.sender);
     }
 
-    /// @notice Verify a TEE-signed scoring result and mint the attestation NFT to the
+    /// @notice Verify a signed scoring result and mint the attestation NFT to the
     ///         invoice's supplier. One attestation per invoice (re-attestation reverts).
     /// @param invoiceId The registered invoice this grade is for. Must equal the invoiceId the
-    ///        TEE bound into `resultData` (audit finding H1).
+    ///        scorer bound into `resultData` (audit finding H1).
     /// @param resultData ABI-encoded (bytes32 invoiceId, bytes32 grade, uint256 riskScoreBps,
     ///        uint256 discountRateBps) as produced by the scoring extension. The leading
-    ///        invoiceId is echoed by the enclave so the signature binds the grade to one invoice.
-    /// @param actionId The TEE ActionResult id.
-    /// @param submissionTag The ActionResult submission tag (e.g. "threshold").
-    /// @param status The ActionResult status (must be 1).
-    /// @param signature The TEE identity's EIP-191 signature over the domain-separated payload.
+    ///        invoiceId is echoed by the scorer so the signature binds the grade to one invoice.
+    /// @param actionId The scoring result id.
+    /// @param submissionTag The result submission tag (e.g. "threshold").
+    /// @param status The result status (must be 1).
+    /// @param signature The scorer identity's EIP-191 signature over the domain-separated payload.
     /// @return tokenId The minted token id (== uint256(invoiceId)).
     function attest(
         bytes32 invoiceId,
@@ -129,21 +136,21 @@ contract CifraAttestationNFT is ERC721 {
         if (!REGISTRY.exists(invoiceId)) revert UnknownInvoice();
         if (status != STATUS_SUCCESS) revert ResultNotSuccessful();
 
-        _verifyTeeSignature(resultData, actionId, submissionTag, status, signature);
+        _verifyScorerSignature(resultData, actionId, submissionTag, status, signature);
 
         // Decode + validate the signed result (H1 binding + range checks) in a helper to keep
         // this function's stack shallow.
         (bytes32 grade, uint32 riskBps, uint32 discountBps) = _decodeCheckedGrade(invoiceId, resultData);
 
         tokenId = uint256(invoiceId);
-        if (gradeOf[tokenId].teeSigner != address(0)) revert AlreadyAttested();
+        if (gradeOf[tokenId].scorerSigner != address(0)) revert AlreadyAttested();
 
         address supplier = REGISTRY.getInvoice(invoiceId).supplier;
         gradeOf[tokenId] = Grade({
             grade: grade,
             riskScoreBps: riskBps,
             discountRateBps: discountBps,
-            teeSigner: teeAddress
+            scorerSigner: scorerAddress
         });
         _safeMint(supplier, tokenId);
 
@@ -161,7 +168,7 @@ contract CifraAttestationNFT is ERC721 {
         uint256 risk;
         uint256 discount;
         (boundInvoiceId, grade, risk, discount) = abi.decode(resultData, (bytes32, bytes32, uint256, uint256));
-        // H1: the grade is only valid for the invoice the TEE signed it for.
+        // H1: the grade is only valid for the invoice the scorer signed it for.
         if (boundInvoiceId != invoiceId) revert InvoiceMismatch();
         if (risk > MAX_BPS) revert ScoreOutOfRange();
         // Bound the discount: prevents a silent uint32 truncation and an underflow in
@@ -178,16 +185,17 @@ contract CifraAttestationNFT is ERC721 {
 
     /// @notice Whether an invoice has a recorded attestation.
     function isAttested(bytes32 invoiceId) external view returns (bool) {
-        return gradeOf[uint256(invoiceId)].teeSigner != address(0);
+        return gradeOf[uint256(invoiceId)].scorerSigner != address(0);
     }
 
     // --- Admin ---
 
-    /// @notice Update the accepted TEE identity (e.g. after the machine re-registers).
-    function setTeeAddress(address newTee) external onlyOwner {
-        if (newTee == address(0)) revert ZeroAddress();
-        emit TeeAddressUpdated(teeAddress, newTee);
-        teeAddress = newTee;
+    /// @notice Update the accepted scorer identity. This is the upgrade path to a
+    ///         hardware-attested signer: point at the new key, no migration needed.
+    function setScorerAddress(address newScorer) external onlyOwner {
+        if (newScorer == address(0)) revert ZeroAddress();
+        emit ScorerAddressUpdated(scorerAddress, newScorer);
+        scorerAddress = newScorer;
     }
 
     /// @notice Update the keeper permitted to submit attestations (audit finding H1).
@@ -205,7 +213,7 @@ contract CifraAttestationNFT is ERC721 {
 
     // --- Internal ---
 
-    function _verifyTeeSignature(
+    function _verifyScorerSignature(
         bytes calldata resultData,
         bytes32 actionId,
         string calldata submissionTag,
@@ -215,8 +223,8 @@ contract CifraAttestationNFT is ERC721 {
         bytes32 resultHash = keccak256(
             abi.encodePacked(keccak256(resultData), actionId, keccak256(bytes(submissionTag)), status)
         );
-        bytes32 payload = keccak256(abi.encode(TEE_ACTION_RESULT, block.chainid, resultHash));
+        bytes32 payload = keccak256(abi.encode(SCORE_RESULT_DOMAIN, block.chainid, resultHash));
         address signer = ECDSA.recover(MessageHashUtils.toEthSignedMessageHash(payload), signature);
-        if (signer != teeAddress) revert BadTeeSignature();
+        if (signer != scorerAddress) revert BadScorerSignature();
     }
 }

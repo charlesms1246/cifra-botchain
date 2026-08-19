@@ -17,7 +17,7 @@ contract CifraInvoiceRegistry {
     enum Status {
         None, // 0 — never registered (default for unknown ids)
         Registered, // 1 — recorded, awaiting funding
-        Funded, // 2 — a funder has advanced FXRP to the supplier
+        Funded, // 2 — a funder has advanced the book asset to the supplier
         Settled, // 3 — buyer paid; funders repaid
         Defaulted // 4 — due date + grace passed without payment
     }
@@ -25,7 +25,7 @@ contract CifraInvoiceRegistry {
     struct Invoice {
         address supplier; // who registered / receives the advance
         bytes32 buyerCommitment; // opaque hash of buyer identity — private
-        uint256 faceAmount; // face value in FXRP smallest units
+        uint256 faceAmount; // face value in the book asset's smallest units
         uint64 dueDate; // unix timestamp the buyer must pay by
         Status status;
     }
@@ -73,7 +73,7 @@ contract CifraInvoiceRegistry {
     /// @notice Register a new invoice. The id is derived from the invoice's fields plus
     ///         a caller-supplied `ref`, so re-registering identical data reverts (dedupe).
     /// @param buyerCommitment Opaque hash of the buyer's identity (kept private off-chain).
-    /// @param faceAmount Face value in FXRP smallest units. Must be > 0.
+    /// @param faceAmount Face value in the book asset's smallest units. Must be > 0.
     /// @param dueDate Unix timestamp by which the buyer must pay. Must be in the future.
     /// @param ref Caller-chosen salt/reference (e.g. invoice number hash) that distinguishes
     ///        otherwise-identical invoices and lets the supplier control the id.

@@ -2,14 +2,28 @@ import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
 import "dotenv/config";
 
-// Derived from flare-foundation/flare-hardhat-starter. Kept faithful to the
-// starter's Solidity settings and Flare network blocks (Coston2 primary), but
-// trimmed to a focused, standard toolchain (hardhat-toolbox / ethers v6). See
-// README "Toolchain" for the deliberate deviations.
+// Cifra targets BOT Chain (mainnet 677 / testnet 968). The Flare networks are
+// retained only so the original Coston2 deployment stays reproducible while the
+// port is in flight; they are not deployment targets any more.
+//
+// evmVersion "cancun" is safe on BOT Chain: its block headers carry
+// `requestsHash`/`parentBeaconBlockRoot`, so the chain is at a Prague-era fork
+// and every Cancun opcode is available. See claude-docs/BOTCHAIN_FACTS.md.
+
+/** `.env.example` ships empty placeholders, so treat "" as unset everywhere below. */
+const env = (key: string, fallback: string): string => {
+    const v = process.env[key];
+    return v !== undefined && v.trim() !== "" ? v.trim() : fallback;
+};
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY ?? "";
 const FLARE_RPC_API_KEY = process.env.FLARE_RPC_API_KEY ?? "";
 const FLARE_EXPLORER_API_KEY = process.env.FLARE_EXPLORER_API_KEY ?? "";
+
+const BOTCHAIN_EXPLORER_URL = env("BOTCHAIN_EXPLORER_URL", "https://scan.botchain.ai");
+const BOTCHAIN_TESTNET_EXPLORER_URL = env("BOTCHAIN_TESTNET_EXPLORER_URL", "https://scan.bohr.life");
+// Blockscout does not require a real key, but hardhat-verify refuses an empty string.
+const BOTCHAIN_EXPLORER_API_KEY = env("BOTCHAIN_EXPLORER_API_KEY", "blockscout");
 
 const COSTON_EXPLORER_URL = process.env.COSTON_EXPLORER_URL ?? "https://coston-explorer.flare.network";
 const COSTON2_EXPLORER_URL = process.env.COSTON2_EXPLORER_URL ?? "https://coston2-explorer.flare.network";
@@ -32,7 +46,19 @@ const config: HardhatUserConfig = {
         ],
     },
     networks: {
-        // Coston2 is Cifra's primary target (see CLAUDE.md network config).
+        // ─── BOT Chain — the deployment targets ──────────────────────────────
+        botchain: {
+            url: env("BOTCHAIN_RPC_URL", "https://rpc.botchain.ai"),
+            accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
+            chainId: 677,
+        },
+        botchainTestnet: {
+            url: env("BOTCHAIN_TESTNET_RPC_URL", "https://rpc.bohr.life"),
+            accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
+            chainId: 968,
+        },
+
+        // ─── Flare (legacy — the pre-port deployment) ────────────────────────
         coston2: {
             url: FLARE_RPC_API_KEY
                 ? `https://coston2-api-tracer.flare.network/ext/C/rpc?x-apikey=${FLARE_RPC_API_KEY}`
@@ -64,12 +90,32 @@ const config: HardhatUserConfig = {
     },
     etherscan: {
         apiKey: {
+            // Blockscout ignores the value but requires it to be non-empty.
+            botchain: BOTCHAIN_EXPLORER_API_KEY,
+            botchainTestnet: BOTCHAIN_EXPLORER_API_KEY,
             coston: `${FLARE_EXPLORER_API_KEY}`,
             coston2: `${FLARE_EXPLORER_API_KEY}`,
             songbird: `${FLARE_EXPLORER_API_KEY}`,
             flare: `${FLARE_EXPLORER_API_KEY}`,
         },
         customChains: [
+            {
+                network: "botchain",
+                chainId: 677,
+                urls: {
+                    apiURL: `${BOTCHAIN_EXPLORER_URL}/api`,
+                    browserURL: BOTCHAIN_EXPLORER_URL,
+                },
+            },
+            {
+                network: "botchainTestnet",
+                chainId: 968,
+                urls: {
+                    // faucet: https://faucet.botchain.ai/basic (10 tBOT / address / 24h)
+                    apiURL: `${BOTCHAIN_TESTNET_EXPLORER_URL}/api`,
+                    browserURL: BOTCHAIN_TESTNET_EXPLORER_URL,
+                },
+            },
             {
                 network: "coston2",
                 chainId: 114,
