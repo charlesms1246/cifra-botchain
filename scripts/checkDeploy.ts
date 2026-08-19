@@ -1,0 +1,71 @@
+import { ethers, network } from "hardhat";
+import * as fs from "fs";
+import * as path from "path";
+
+// Post-deploy assertions: re-read every wiring decision off-chain state rather than trusting
+// the deploy log. Run after any deploy:
+//   npx hardhat run scripts/checkDeploy.ts --network botchainTestnet
+
+const ok = (label: string, pass: boolean, detail = "") => {
+    console.log(`  ${pass ? "PASS" : "FAIL"}  ${label}${detail ? "  — " + detail : ""}`);
+    if (!pass) process.exitCode = 1;
+};
+
+async function main() {
+    const file = path.join(__dirname, "..", "deployments", `cifra-${network.name}.json`);
+    const dep = JSON.parse(fs.readFileSync(file, "utf8"));
+    const chainId = Number((await ethers.provider.getNetwork()).chainId);
+    console.log(`${network.name} (chainId ${chainId})  deployed ${dep.deployedAt}\n`);
+    ok("deployment file matches the connected chain", dep.chainId === chainId, `${dep.chainId} vs ${chainId}`);
+
+    const registry = await ethers.getContractAt("CifraInvoiceRegistry", dep.shared.CifraInvoiceRegistry);
+    const attestation = await ethers.getContractAt("CifraAttestationNFT", dep.shared.CifraAttestationNFT);
+
+    console.log("\nshared");
+    ok("registry has code", (await ethers.provider.getCode(dep.shared.CifraInvoiceRegistry)) !== "0x");
+    ok("attestation.REGISTRY points at the registry", (await attestation.REGISTRY()) === dep.shared.CifraInvoiceRegistry);
+    ok("attestation.scorerAddress is set", (await attestation.scorerAddress()) === dep.config.scorerAddress);
+    ok("attestation.attester is set", (await attestation.attester()) === dep.deployer);
+
+    for (const [key, b] of Object.entries<any>(dep.books)) {
+        console.log(`\n${key} book`);
+        const controller = await ethers.getContractAt("CifraTrancheController", b.controller);
+        const senior = await ethers.getContractAt("CifraTrancheVault", b.seniorVault);
+        const junior = await ethers.getContractAt("CifraTrancheVault", b.juniorVault);
+
+        ok("controller.ASSET is the book asset", (await controller.ASSET()) === b.asset);
+        ok("controller.REGISTRY is the shared registry", (await controller.REGISTRY()) === dep.shared.CifraInvoiceRegistry);
+        ok("controller.ATTESTATION is the shared NFT", (await controller.ATTESTATION()) === dep.shared.CifraAttestationNFT);
+        ok("controller.seniorVault wired", (await controller.seniorVault()) === b.seniorVault);
+        ok("controller.juniorVault wired", (await controller.juniorVault()) === b.juniorVault);
+        ok("senior.asset() matches the book", (await senior.asset()) === b.asset);
+        ok("junior.asset() matches the book", (await junior.asset()) === b.asset);
+        ok("senior.CONTROLLER points back", (await senior.CONTROLLER()) === b.controller);
+        ok("junior.CONTROLLER points back", (await junior.CONTROLLER()) === b.controller);
+        ok("registry trusts this controller as a status updater", await registry.isStatusUpdater(b.controller));
+        ok("controller is unpaused", !(await controller.paused()));
+        ok("seniorYieldShareBps = 5000", (await controller.seniorYieldShareBps()) === 5000n);
+        ok("NAV starts at zero", (await controller.nav()) === 0n);
+
+        // Share decimals = asset decimals + 3 (the ERC-4626 inflation-attack offset).
+        const assetMeta = new ethers.Contract(b.asset, ["function decimals() view returns (uint8)", "function symbol() view returns (string)"], ethers.provider);
+        const assetDec = Number(await assetMeta.decimals());
+        ok(`share decimals = asset(${assetDec}) + 3`, Number(await senior.decimals()) === assetDec + 3, `${await senior.decimals()}`);
+        console.log(`        asset symbol ${await assetMeta.symbol()}, ${assetDec}dp; shares ${await senior.symbol()} / ${await junior.symbol()}`);
+
+        if (b.nativeDepositHelper) {
+            const helper = await ethers.getContractAt("CifraNativeDepositHelper", b.nativeDepositHelper);
+            ok("helper.WRAPPED is the canonical wrapped native", (await helper.WRAPPED()) === dep.external.wrappedNative);
+            ok("helper wraps the same asset this book uses", (await helper.WRAPPED()) === b.asset);
+        }
+        if (b.navOracle) {
+            const oracle = await ethers.getContractAt("CifraNavOracle", b.navOracle);
+            ok("navOracle base token is the book asset", (await oracle.BASE_TOKEN()) === b.asset);
+            const [tick, tickOk] = await oracle.meanTickSafe();
+            console.log(`        TWAP tick ${tick} (usable: ${tickOk})`);
+        }
+    }
+    console.log(process.exitCode ? "\nFAILURES ABOVE" : "\nAll checks passed.");
+}
+
+main().catch((e) => { console.error(e); process.exit(1); });
