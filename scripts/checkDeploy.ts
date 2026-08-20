@@ -27,6 +27,15 @@ async function main() {
     ok("attestation.scorerAddress is set", (await attestation.scorerAddress()) === dep.config.scorerAddress);
     ok("attestation.attester is set", (await attestation.attester()) === dep.deployer);
 
+    if (dep.shared.CifraFunderRegistry) {
+        const fr = await ethers.getContractAt("CifraFunderRegistry", dep.shared.CifraFunderRegistry, ethers.provider);
+        const restricted = await fr.restricted();
+        ok("funder allowlist deployed", true, dep.shared.CifraFunderRegistry);
+        console.log(`        participation: ${restricted ? "RESTRICTED — allowlist enforced" : "OPEN — anyone may deposit"}`);
+    } else {
+        ok("funder allowlist deployed", false, "vaults are permanently permissionless — cannot be restricted later");
+    }
+
     for (const [key, b] of Object.entries<any>(dep.books)) {
         console.log(`\n${key} book`);
         const controller = await ethers.getContractAt("CifraTrancheController", b.controller);
@@ -41,6 +50,8 @@ async function main() {
         ok("senior.asset() matches the book", (await senior.asset()) === b.asset);
         ok("junior.asset() matches the book", (await junior.asset()) === b.asset);
         ok("senior.CONTROLLER points back", (await senior.CONTROLLER()) === b.controller);
+        if (dep.shared.CifraFunderRegistry)
+            ok("senior vault is bound to the allowlist", (await senior.FUNDER_REGISTRY()) === dep.shared.CifraFunderRegistry);
         ok("junior.CONTROLLER points back", (await junior.CONTROLLER()) === b.controller);
         ok("registry trusts this controller as a status updater", await registry.isStatusUpdater(b.controller));
         ok("controller is unpaused", !(await controller.paused()));

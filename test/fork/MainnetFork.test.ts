@@ -106,10 +106,10 @@ async function signResult(wallet: any, resultData: string, actionId: string, tag
             ).deploy(WBOT, await registry.getAddress(), await attestation.getAddress());
             vault = await (
                 await ethers.getContractFactory("CifraTrancheVault")
-            ).deploy(WBOT, await controller.getAddress(), "Cifra Senior BOT", "cBOT-S");
+            ).deploy(WBOT, await controller.getAddress(), "Cifra Senior BOT", "cBOT-S", ethers.ZeroAddress);
             const junior = await (
                 await ethers.getContractFactory("CifraTrancheVault")
-            ).deploy(WBOT, await controller.getAddress(), "Cifra Junior BOT", "cBOT-J");
+            ).deploy(WBOT, await controller.getAddress(), "Cifra Junior BOT", "cBOT-J", ethers.ZeroAddress);
             await controller.setTrancheVaults(await vault.getAddress(), await junior.getAddress());
 
             oracle = await (
@@ -178,10 +178,10 @@ async function signResult(wallet: any, resultData: string, actionId: string, tag
             ).deploy(USDT, await registry.getAddress(), await attestation.getAddress());
             senior = await (
                 await ethers.getContractFactory("CifraTrancheVault")
-            ).deploy(USDT, await controller.getAddress(), "Cifra Senior USDT", "cUSDT-S");
+            ).deploy(USDT, await controller.getAddress(), "Cifra Senior USDT", "cUSDT-S", ethers.ZeroAddress);
             junior = await (
                 await ethers.getContractFactory("CifraTrancheVault")
-            ).deploy(USDT, await controller.getAddress(), "Cifra Junior USDT", "cUSDT-J");
+            ).deploy(USDT, await controller.getAddress(), "Cifra Junior USDT", "cUSDT-J", ethers.ZeroAddress);
             settlement = await (await ethers.getContractFactory("CifraSettlement")).deploy(await controller.getAddress(), GRACE);
 
             await registry.setStatusUpdater(await controller.getAddress(), true);
@@ -265,10 +265,10 @@ async function signResult(wallet: any, resultData: string, actionId: string, tag
             ).deploy(WBOT, await registry.getAddress(), await attestation.getAddress());
             const senior = await (
                 await ethers.getContractFactory("CifraTrancheVault")
-            ).deploy(WBOT, await controller.getAddress(), "Cifra Senior BOT", "cBOT-S");
+            ).deploy(WBOT, await controller.getAddress(), "Cifra Senior BOT", "cBOT-S", ethers.ZeroAddress);
             const junior = await (
                 await ethers.getContractFactory("CifraTrancheVault")
-            ).deploy(WBOT, await controller.getAddress(), "Cifra Junior BOT", "cBOT-J");
+            ).deploy(WBOT, await controller.getAddress(), "Cifra Junior BOT", "cBOT-J", ethers.ZeroAddress);
             await controller.setTrancheVaults(await senior.getAddress(), await junior.getAddress());
             const helper = await (await ethers.getContractFactory("CifraNativeDepositHelper")).deploy(WBOT);
 

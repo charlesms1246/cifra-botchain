@@ -98,6 +98,7 @@ attested signer later is a key rotation rather than a contract migration.
 | **`CifraSettlement`** | The buyer repays on-chain; default is a `block.timestamp` check anyone can call. No oracle, no reserve. |
 | **`CifraNativeDepositHelper`** | One-transaction native BOT → WBOT → tranche, and back. |
 | **`CifraNavOracle`** | **Display only.** Prices a volatile book's NAV in USD via a BDEX V3 TWAP. Nothing economic reads it. |
+| **`CifraFunderRegistry`** | Allowlist of addresses permitted to hold tranche shares. Gates deposits and transfers; **never gates exit**. Ships open, enforced by a governance switch. |
 | **`scorer/`** | The Go scoring service. Stateless, no database, runs on Cloud Run. |
 
 ## Two books, and why they never mix
@@ -212,11 +213,12 @@ Full setup — the frontend, the scoring service, Cloud Run — is in **[SETUP.m
   days and a live chain cannot time-travel. Identical logic, different constant; the script
   restores the real settlement afterwards.
 - **Testnet only so far.** Mainnet (677) deployment is pending.
-- **No compliance layer yet** — no KYC/KYB, no assignment-of-receivable instrument, no legal
-  entity. **Deposits are permissionless today**: `CifraTrancheVault` is a plain ERC-4626, so
-  anyone can fund a tranche. Senior and junior tranches sold to passive funders would, at
-  production scale, plausibly be securities. The full picture, including what would have to
-  change, is in **[docs/REGULATORY_POSTURE.md](docs/REGULATORY_POSTURE.md)**.
+- **No compliance layer operating yet** — no KYC/KYB provider, no assignment-of-receivable
+  instrument, no legal entity. The *mechanism* to restrict funders exists
+  (`CifraFunderRegistry`) but **ships open**, so deposits are permissionless until governance
+  switches it on. Senior and junior tranches sold to passive funders would, at production scale,
+  plausibly be securities. Full picture in
+  **[docs/REGULATORY_POSTURE.md](docs/REGULATORY_POSTURE.md)**.
 - **Contracts are unaudited** beyond internal review, and the governance Safe has no timelock.
 
 ## Roadmap

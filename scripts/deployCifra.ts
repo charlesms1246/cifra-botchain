@@ -26,6 +26,9 @@ import { networkConfig, isLocalChain, TWAP_WINDOW_SECONDS, type BookConfig, type
 //   CIFRA_OPERATOR        — funding keeper (default: deployer)
 //   CIFRA_BOOKS           — comma-separated subset, e.g. "usdt" (default: both)
 //   CIFRA_GRACE_DAYS      — days past due before an invoice can be defaulted (default: 3)
+//   CIFRA_RESTRICT_FUNDERS — "true" deploys the funder allowlist ENFORCING from block one
+//                            (default: false — deploy the registry but leave it open, so it can
+//                            be switched on by governance without redeploying the vaults)
 //   VERIFY=false          — skip block-explorer verification
 
 type Deployed = { name: string; address: string; contract: any; args: unknown[] };
@@ -59,7 +62,8 @@ async function deployBook(
     operator: string,
     deployer: string,
     wrappedNative: string,
-    gracePeriod: number
+    gracePeriod: number,
+    funderRegistry: string
 ) {
     console.log(`\n── ${book.label} book ──`);
     console.log(`  asset                              ${book.asset}`);
@@ -71,12 +75,12 @@ async function deployBook(
     );
     const senior = await deploy(
         "CifraTrancheVault",
-        [book.asset, controller.address, book.seniorName, book.seniorSymbol],
+        [book.asset, controller.address, book.seniorName, book.seniorSymbol, funderRegistry],
         `CifraTrancheVault[${key}:senior]`
     );
     const junior = await deploy(
         "CifraTrancheVault",
-        [book.asset, controller.address, book.juniorName, book.juniorSymbol],
+        [book.asset, controller.address, book.juniorName, book.juniorSymbol, funderRegistry],
         `CifraTrancheVault[${key}:junior]`
     );
 
@@ -192,6 +196,16 @@ async function main() {
     // ── Shared layer: one registry + one attestation NFT across both books ──────
     console.log(`\n── shared ──`);
     const registry = await deploy("CifraInvoiceRegistry", []);
+
+    // The allowlist is ALWAYS deployed, even when it starts open. The vaults bind it
+    // immutably at construction, so a book deployed without one can never be restricted later
+    // without redeploying — and "we might need KYC eventually" is not a reason to redeploy a
+    // live vault. Restriction is then a governance switch, not a migration.
+    const restrictFrom = env("CIFRA_RESTRICT_FUNDERS") === "true";
+    const funderRegistry = await deploy("CifraFunderRegistry", [restrictFrom]);
+    console.log(
+        `  funder allowlist                   ${restrictFrom ? "ENFORCING from deploy" : "deployed but OPEN (setRestricted(true) to enforce)"}`
+    );
     const attestation = await deploy("CifraAttestationNFT", [
         "Cifra Attestation",
         "CIFRA-ATT",
@@ -218,7 +232,8 @@ async function main() {
             operator,
             deployer.address,
             cfg.wrappedNative,
-            gracePeriod
+            gracePeriod,
+            funderRegistry.address
         );
         books[key] = out;
         controllers.push(out.controller);
@@ -237,11 +252,18 @@ async function main() {
         chainId,
         deployedAt: new Date().toISOString(),
         deployer: deployer.address,
-        config: { scorerAddress, operator, twapWindowSeconds: TWAP_WINDOW_SECONDS, gracePeriodSeconds: gracePeriod },
+        config: {
+            scorerAddress,
+            operator,
+            twapWindowSeconds: TWAP_WINDOW_SECONDS,
+            gracePeriodSeconds: gracePeriod,
+            fundersRestricted: restrictFrom,
+        },
         external: { wrappedNative: cfg.wrappedNative },
         shared: {
             CifraInvoiceRegistry: registry.address,
             CifraAttestationNFT: attestation.address,
+            CifraFunderRegistry: funderRegistry.address,
         },
         books,
     };

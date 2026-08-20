@@ -21,10 +21,10 @@ describe("CifraTrancheVault", () => {
             await asset.getAddress(), await registry.getAddress(), await attestation.getAddress()
         )) as unknown as CifraTrancheController;
         senior = (await (await ethers.getContractFactory("CifraTrancheVault")).deploy(
-            await asset.getAddress(), await controller.getAddress(), "Cifra Senior", "cFXRP-S"
+            await asset.getAddress(), await controller.getAddress(), "Cifra Senior", "cFXRP-S", ethers.ZeroAddress
         )) as unknown as CifraTrancheVault;
         junior = (await (await ethers.getContractFactory("CifraTrancheVault")).deploy(
-            await asset.getAddress(), await controller.getAddress(), "Cifra Junior", "cFXRP-J"
+            await asset.getAddress(), await controller.getAddress(), "Cifra Junior", "cFXRP-J", ethers.ZeroAddress
         )) as unknown as CifraTrancheVault;
         await controller.connect(owner).setTrancheVaults(await senior.getAddress(), await junior.getAddress());
     });

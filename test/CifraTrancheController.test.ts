@@ -55,10 +55,10 @@ describe("CifraTrancheController", () => {
             await f.getAddress(), await r.getAddress(), await a.getAddress()
         )) as unknown as CifraTrancheController;
         const s = (await (await ethers.getContractFactory("CifraTrancheVault")).deploy(
-            await f.getAddress(), await c.getAddress(), "Cifra Senior", "cFXRP-S"
+            await f.getAddress(), await c.getAddress(), "Cifra Senior", "cFXRP-S", ethers.ZeroAddress
         )) as unknown as CifraTrancheVault;
         const j = (await (await ethers.getContractFactory("CifraTrancheVault")).deploy(
-            await f.getAddress(), await c.getAddress(), "Cifra Junior", "cFXRP-J"
+            await f.getAddress(), await c.getAddress(), "Cifra Junior", "cFXRP-J", ethers.ZeroAddress
         )) as unknown as CifraTrancheVault;
 
         await r.connect(owner).setStatusUpdater(await c.getAddress(), true);

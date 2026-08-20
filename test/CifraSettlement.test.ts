@@ -62,10 +62,10 @@ describe("CifraSettlement", () => {
             await asset.getAddress(), await registry.getAddress(), await attestation.getAddress()
         )) as unknown as CifraTrancheController;
         senior = (await (await ethers.getContractFactory("CifraTrancheVault")).deploy(
-            await asset.getAddress(), await controller.getAddress(), "Cifra Senior USDT", "cUSDT-S"
+            await asset.getAddress(), await controller.getAddress(), "Cifra Senior USDT", "cUSDT-S", ethers.ZeroAddress
         )) as unknown as CifraTrancheVault;
         junior = (await (await ethers.getContractFactory("CifraTrancheVault")).deploy(
-            await asset.getAddress(), await controller.getAddress(), "Cifra Junior USDT", "cUSDT-J"
+            await asset.getAddress(), await controller.getAddress(), "Cifra Junior USDT", "cUSDT-J", ethers.ZeroAddress
         )) as unknown as CifraTrancheVault;
         settlement = (await (await ethers.getContractFactory("CifraSettlement")).deploy(
             await controller.getAddress(), GRACE

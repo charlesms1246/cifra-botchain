@@ -52,7 +52,7 @@ describe("CifraNativeDepositHelper", () => {
             await wbot.getAddress(),
             await controller.getAddress(),
             "Cifra Senior BOT",
-            "cBOT-S"
+            "cBOT-S", ethers.ZeroAddress
         )) as unknown as CifraTrancheVault;
         const junior = (await (
             await ethers.getContractFactory("CifraTrancheVault")
@@ -60,7 +60,7 @@ describe("CifraNativeDepositHelper", () => {
             await wbot.getAddress(),
             await controller.getAddress(),
             "Cifra Junior BOT",
-            "cBOT-J"
+            "cBOT-J", ethers.ZeroAddress
         )) as unknown as CifraTrancheVault;
         await controller.setTrancheVaults(await senior.getAddress(), await junior.getAddress());
 
@@ -119,7 +119,7 @@ describe("CifraNativeDepositHelper", () => {
                 await usdt.getAddress(),
                 await usdtController.getAddress(),
                 "Cifra Senior USDT",
-                "cUSDT-S"
+                "cUSDT-S", ethers.ZeroAddress
             )) as unknown as CifraTrancheVault;
 
             await expect(
