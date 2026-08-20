@@ -81,8 +81,11 @@ function Dashboard() {
         <div>
           <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">Funder vault</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground sm:text-base">
-            Two tranches over one {book.symbol} pool: senior is protected, junior takes first loss for more
-            yield. Each invoice&apos;s discount spread is split {seniorPct}/{100 - seniorPct} senior/junior.
+            {/* Interpolated as one string: JSX strips the space between an expression and the
+                text that follows it across a line wrap, which silently rendered "BOTpool". */}
+            {`Two tranches over one ${book.symbol} pool:`} senior is protected, junior takes
+            first loss for more yield.{" "}
+            {`Each invoice's discount spread is split ${seniorPct}/${100 - seniorPct} senior/junior.`}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -139,24 +142,32 @@ function TrancheCard({
   const { isLoading: confirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
   const { data: nativeBal } = useBalance({ address, query: { enabled: Boolean(address) } });
-  const { data: reads } = useReadContracts({
+  // Public vault facts — always read, wallet or not.
+  const { data: vaultReads } = useReadContracts({
     contracts: [
       { address: tranche.vault, abi: vaultAbi, functionName: "totalAssets" },
-      { address: tranche.vault, abi: vaultAbi, functionName: "balanceOf", args: [address ?? "0x0000000000000000000000000000000000000000"] },
       { address: tranche.vault, abi: vaultAbi, functionName: "decimals" },
       { address: tranche.vault, abi: vaultAbi, functionName: "symbol" },
+    ],
+    query: { refetchInterval: 8000 },
+  });
+
+  // Only the connected user's own position needs an address.
+  const { data: userReads } = useReadContracts({
+    contracts: [
+      { address: tranche.vault, abi: vaultAbi, functionName: "balanceOf", args: [address ?? "0x0000000000000000000000000000000000000000"] },
       { address: book.asset, abi: erc20Abi, functionName: "balanceOf", args: [address ?? "0x0000000000000000000000000000000000000000"] },
       { address: book.asset, abi: erc20Abi, functionName: "allowance", args: [address ?? "0x0000000000000000000000000000000000000000", tranche.vault] },
     ],
     query: { enabled: Boolean(address), refetchInterval: 8000 },
   });
 
-  const totalAssets = (reads?.[0]?.result as bigint | undefined) ?? 0n;
-  const shares = (reads?.[1]?.result as bigint | undefined) ?? 0n;
-  const shareDecimals = (reads?.[2]?.result as number | undefined) ?? book.decimals + 3;
-  const shareSymbol = (reads?.[3]?.result as string | undefined) ?? "";
-  const walletAsset = (reads?.[4]?.result as bigint | undefined) ?? 0n;
-  const allowance = (reads?.[5]?.result as bigint | undefined) ?? 0n;
+  const totalAssets = (vaultReads?.[0]?.result as bigint | undefined) ?? 0n;
+  const shareDecimals = (vaultReads?.[1]?.result as number | undefined) ?? book.decimals + 3;
+  const shareSymbol = (vaultReads?.[2]?.result as string | undefined) ?? "";
+  const shares = (userReads?.[0]?.result as bigint | undefined) ?? 0n;
+  const walletAsset = (userReads?.[1]?.result as bigint | undefined) ?? 0n;
+  const allowance = (userReads?.[2]?.result as bigint | undefined) ?? 0n;
 
   const parsed = value.trim() === "" ? 0n : safeParse(value, book.decimals);
   const needsApproval = !useNative && parsed > 0n && allowance < parsed;

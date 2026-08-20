@@ -1,6 +1,9 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { CifraNavOracle, MockVault4626, MockAsset, MockV3Pool } from "../typechain-types";
+// The SHIPPED conversion, not a copy — a re-implementation here could not catch a regression
+// in the code the frontend actually runs.
+import { priceFromTick } from "../frontend/lib/price";
 
 // CifraNavOracle is a DISPLAY-ONLY valuation helper: it reports a book's NAV in its own asset
 // units and hands back the raw TWAP mean tick so the frontend can express that NAV in a quote
@@ -155,6 +158,34 @@ describe("CifraNavOracle", () => {
             const [tick, ok] = await oracle.meanTickSafe();
             expect(ok).to.equal(false);
             expect(tick).to.equal(0);
+        });
+    });
+
+    // The oracle deliberately returns a raw tick and lets the caller convert (Uniswap's TickMath
+    // is GPL). That makes the conversion OUR bug surface, so it is pinned here as well as in the
+    // mainnet-fork suite — a fork run needs the network, this does not.
+    describe("tick → price conversion (config/price.ts, the function the frontend ships)", () => {
+        it("prices an 18dp base against a 6dp quote when the base is token1", async () => {
+            // The real BDEX WBOT/USDT pool: token0 = USDT (6dp), token1 = WBOT (18dp), tick ≈ 253671.
+            // Correct answer is ≈ $9.6 per BOT.
+            const price = priceFromTick(253671, false, 18, 6);
+            expect(price).to.be.greaterThan(5);
+            expect(price).to.be.lessThan(20);
+        });
+
+        it("does NOT flip the decimal exponent with the tick sign", async () => {
+            // The bug the fork test caught: flipping the exponent too rescales by
+            // 10^(2·(18−6)) = 10^24. Assert the wrong formula and the right one differ by exactly
+            // that, so a regression is unmistakable rather than merely 'a weird number'.
+            const correct = priceFromTick(253671, false, 18, 6);
+            const buggy = Math.pow(1.0001, -253671) * Math.pow(10, 6 - 18);
+            expect(correct / buggy).to.be.closeTo(1e24, 1e22);
+        });
+
+        it("is symmetric: swapping orientation inverts the price", async () => {
+            const asToken1 = priceFromTick(253671, false, 18, 6);
+            const asToken0 = priceFromTick(253671, true, 6, 18);
+            expect(asToken0 * asToken1).to.be.closeTo(1, 1e-6);
         });
     });
 

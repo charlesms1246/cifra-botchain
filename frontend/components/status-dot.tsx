@@ -31,7 +31,9 @@ export function StatusDot({ state, className }: { state: InvoiceState; className
           cx="6"
           cy="6"
           r="5"
-          fill={s.fill === "full" ? "currentColor" : "none"}
+          // "check" must fill too: the tick is drawn in the background colour, so on an unfilled
+          // circle it is invisible and Settled becomes indistinguishable from Registered.
+          fill={s.fill === "full" || s.fill === "check" ? "currentColor" : "none"}
           stroke="currentColor"
           strokeWidth="1.5"
           strokeDasharray={state === "Overdue" ? "2 1.5" : undefined}

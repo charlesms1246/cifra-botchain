@@ -46,6 +46,32 @@ const config: HardhatUserConfig = {
         ],
     },
     networks: {
+        // Forking BOT Chain mainnet lets the fork tests exercise the REAL WBOT/USDT pool, the
+        // real USDT contract and the real WBOT wrapper before anything is deployed for money.
+        // Enabled only when FORK=1 so the ordinary unit suite stays offline and fast.
+        hardhat:
+            process.env.FORK === "1"
+                ? {
+                      forking: {
+                          // Deliberately NOT BOTCHAIN_RPC_URL: that variable is also a supported
+                          // override for the live deploy target, so reusing it would let a
+                          // testnet endpoint be forked while `chainId: 677` below forges a
+                          // mainnet identity over it — silently invalidating the fork tests.
+                          url: env("FORK_RPC_URL", "https://rpc.botchain.ai"),
+                          ...(process.env.FORK_BLOCK ? { blockNumber: Number(process.env.FORK_BLOCK) } : {}),
+                      },
+                      chainId: 677,
+                      // Hardhat has no built-in hardfork history for chain 677 and refuses to
+                      // execute against a forked block without one. BOT Chain is at a
+                      // Prague-era fork, so every block in its history is at least Cancun.
+                      // The node's own hardfork must be pinned too: it defaults to the newest
+                      // Hardhat knows (osaka), which does not match anything in BOT Chain's
+                      // history and leaves EDR unable to pick a fork for a historical block.
+                      hardfork: "prague",
+                      chains: { 677: { hardforkHistory: { prague: 0 } } },
+                  }
+                : {},
+
         // ─── BOT Chain — the deployment targets ──────────────────────────────
         botchain: {
             url: env("BOTCHAIN_RPC_URL", "https://rpc.botchain.ai"),

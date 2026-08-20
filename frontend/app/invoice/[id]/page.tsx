@@ -130,7 +130,7 @@ function InvoiceDetail({ id }: { id: `0x${string}` }) {
               hint="A commitment hash. The buyer's identity is never published on-chain."
             />
             <Row label="Registry status" value={status} />
-            <Row label="Funding ({book})" value={fundingStatus} />
+            <Row label={`Funding (${book.label})`} value={fundingStatus} />
             {funding && funding[4] !== 0 && (
               <Row label="Principal advanced" value={`${amount(funding[2], book.decimals)} ${book.symbol}`} />
             )}
@@ -166,8 +166,11 @@ function InvoiceDetail({ id }: { id: `0x${string}` }) {
         <Card className="mt-4">
           <CardTitle>Settle</CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
-            The buyer repays face value in {book.symbol} and the contract observes the payment
-            itself — no oracle, no proof, no reserve. Anyone may settle on the buyer&apos;s behalf.
+            {/* Explicit {" "}: SWC sometimes drops a space adjacent to an expression when the
+                surrounding text wraps, which silently rendered "USDTand". */}
+            The buyer repays face value in {book.symbol}{" "}
+            and the contract observes the payment itself — no oracle, no proof, no reserve.
+            Anyone may settle on the buyer&apos;s behalf.
           </p>
           <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="flex-1 rounded-xl border border-border bg-black/20 p-3">

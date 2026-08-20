@@ -2,72 +2,71 @@ import { ethers, network } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
 
-// Transfer `owner` of the Cifra contracts to the 2-of-3 governance Safe (deployGovSafe.ts).
-// Owner = protocol-parameter governance (setSettlement, setSeniorYieldShareBps,
-// setProtocolReceiverHash, setScorerAddress, setAttester, pause, transferOwnership). The
-// `operator` (fundInvoice) and `attester` (attest) hot roles deliberately STAY with the keeper
-// EOA — bounded operational keys, the correct production split. Run once, as the current owner.
-//   FLARE_RPC_API_KEY="" npx hardhat run scripts/transferOwnershipToGov.ts --network coston2
-
-const JURISDICTION_ORACLE = "0x5BEA2143d4D515b12bacE4dc3f70B364240D029C"; // standalone (not in cifra-coston2.json)
+// Hand every owner-gated Cifra contract to the governance Safe.
+//
+//   npx hardhat run scripts/transferOwnershipToGov.ts --network botchain
+//
+// THIS IS ONE-WAY from this machine's perspective: afterwards only the Safe can change protocol
+// parameters or the scorer/attester/operator roles. Run scripts/setRoles.ts FIRST, or every
+// subsequent role change becomes a multi-sig proposal.
+//
+// Owner-gated surface (NavOracle and NativeDepositHelper have no owner — both are stateless):
+//   registry      setStatusUpdater
+//   attestation   setScorerAddress, setAttester
+//   controller ×2 setOperator, setSettlement, setSeniorYieldShareBps, pause/unpause
+//   settlement ×2 sweep
 
 async function main() {
+    const [signer] = await ethers.getSigners();
     const dep = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "deployments", `cifra-${network.name}.json`), "utf8"));
-    const gov = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "deployments", "cifra-gov-safe.json"), "utf8"));
-    const [deployer] = await ethers.getSigners();
-    const safe: string = gov.safe;
+    const govFile = path.join(__dirname, "..", "deployments", `cifra-gov-safe-${network.name}.json`);
+    if (!fs.existsSync(govFile)) throw new Error(`No governance Safe for ${network.name}. Run scripts/deployGovSafe.ts first.`);
+    const gov = JSON.parse(fs.readFileSync(govFile, "utf8"));
+    const safe: string = ethers.getAddress(gov.safe);
+
+    if ((await ethers.provider.getCode(safe)) === "0x") throw new Error(`Safe ${safe} has no code on ${network.name}`);
 
     const targets: { name: string; address: string }[] = [
-        { name: "CifraInvoiceRegistry", address: dep.contracts.CifraInvoiceRegistry },
-        { name: "CifraAttestationNFT", address: dep.contracts.CifraAttestationNFT },
-        { name: "CifraTrancheController", address: dep.contracts.CifraTrancheController },
-        { name: "CifraSettlement", address: dep.contracts.CifraSettlement },
-        { name: "CifraJurisdictionOracle", address: JURISDICTION_ORACLE },
+        { name: "CifraInvoiceRegistry", address: dep.shared.CifraInvoiceRegistry },
+        { name: "CifraAttestationNFT", address: dep.shared.CifraAttestationNFT },
     ];
-
-    // All five share the same owner()/transferOwnership(address) shape.
-    const OWNABLE = [
-        "function owner() view returns (address)",
-        "function transferOwnership(address newOwner)",
-    ];
-
-    console.log(`Governance Safe: ${safe}\nDeployer:        ${deployer.address}\n`);
-    for (const t of targets) {
-        const c = new ethers.Contract(t.address, OWNABLE, deployer);
-        const cur: string = await c.owner();
-        if (cur.toLowerCase() === safe.toLowerCase()) {
-            console.log(`  ${t.name.padEnd(24)} already owned by Safe ✓`);
-            continue;
-        }
-        if (cur.toLowerCase() !== deployer.address.toLowerCase()) {
-            console.log(`  ${t.name.padEnd(24)} owner is ${cur} (not deployer) — SKIPPING`);
-            continue;
-        }
-        await (await c.transferOwnership(safe)).wait();
-        const now: string = await c.owner();
-        const ok = now.toLowerCase() === safe.toLowerCase();
-        console.log(`  ${t.name.padEnd(24)} owner -> Safe ${ok ? "✓" : "✗ (got " + now + ")"}`);
-        if (!ok) throw new Error(`${t.name} ownership transfer failed`);
+    for (const [key, b] of Object.entries<any>(dep.books)) {
+        targets.push({ name: `CifraTrancheController[${key}]`, address: b.controller });
+        if (b.settlement) targets.push({ name: `CifraSettlement[${key}]`, address: b.settlement });
     }
 
-    // Confirm the operator/attester hot roles stayed with the keeper (not the Safe).
-    const controller = await ethers.getContractAt("CifraTrancheController", dep.contracts.CifraTrancheController);
-    const attestation = await ethers.getContractAt("CifraAttestationNFT", dep.contracts.CifraAttestationNFT);
-    console.log(`\nHot roles (unchanged, keeper EOA):`);
-    console.log(`  controller.operator  = ${await controller.operator()}`);
-    console.log(`  attestation.attester = ${await attestation.attester()}`);
+    console.log(`Network ${network.name}   signer ${signer.address}`);
+    console.log(`Safe    ${safe} (${gov.threshold}-of-${gov.owners.length})\n`);
 
-    // Record governance in the deployment file.
-    dep.governance = {
-        safe,
-        threshold: gov.threshold,
-        owners: gov.owners,
-        ownedContracts: targets.map((t) => t.name),
-        keeper: deployer.address,
-        note: "owner=Safe (2-of-3); operator+attester stay with the keeper EOA (bounded hot roles).",
-    };
-    fs.writeFileSync(path.join(__dirname, "..", "deployments", `cifra-${network.name}.json`), JSON.stringify(dep, null, 2));
-    console.log(`\nSaved governance section to deployments/cifra-${network.name}.json`);
+    const abi = ["function owner() view returns (address)", "function transferOwnership(address)"];
+    for (const t of targets) {
+        const c = new ethers.Contract(t.address, abi, signer);
+        const current: string = await c.owner();
+        if (current.toLowerCase() === safe.toLowerCase()) {
+            console.log(`  = ${t.name.padEnd(32)} already owned by the Safe`);
+            continue;
+        }
+        if (current.toLowerCase() !== signer.address.toLowerCase()) {
+            console.log(`  ! ${t.name.padEnd(32)} owned by ${current} — signer cannot transfer it. SKIPPED.`);
+            continue;
+        }
+        const rcpt = await (await c.transferOwnership(safe)).wait();
+        // Read it back. This is the one irreversible step in the pipeline, so its success is
+        // observed rather than inferred from a receipt.
+        const after: string = await c.owner();
+        if (after.toLowerCase() !== safe.toLowerCase())
+            throw new Error(
+                `${t.name}: transferOwnership mined (${rcpt!.hash}) but owner is still ${after}. ` +
+                    `Stopping before touching anything else.`
+            );
+        console.log(`  → ${t.name.padEnd(32)} ${current} -> ${after}  (${rcpt!.hash})`);
+    }
+
+    console.log(`\nVerify with: npx hardhat run scripts/verifyGov.ts --network ${network.name}`);
+    console.log(`From here on, owner-gated calls go through scripts/safeExec.ts.`);
 }
 
-main().then(() => process.exit(0)).catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+});
