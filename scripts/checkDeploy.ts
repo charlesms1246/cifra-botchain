@@ -56,7 +56,24 @@ async function main() {
         ok("registry trusts this controller as a status updater", await registry.isStatusUpdater(b.controller));
         ok("controller is unpaused", !(await controller.paused()));
         ok("seniorYieldShareBps = 5000", (await controller.seniorYieldShareBps()) === 5000n);
-        ok("NAV starts at zero", (await controller.nav()) === 0n);
+        // NOT "NAV is zero" — this script is also run post-launch, where a non-zero NAV is the
+        // whole point. Assert the accounting invariant from the controller's header instead,
+        // which must hold at every moment of the protocol's life:
+        //   ASSET.balanceOf(controller) + totalDeployed == assetsOf[senior] + assetsOf[junior]
+        const assetToken = new ethers.Contract(
+            b.asset,
+            ["function balanceOf(address) view returns (uint256)"],
+            ethers.provider
+        );
+        const idle: bigint = await assetToken.balanceOf(b.controller);
+        const deployed: bigint = await controller.totalDeployed();
+        const claims: bigint = (await controller.claimOf(b.seniorVault)) + (await controller.claimOf(b.juniorVault));
+        ok(
+            "NAV invariant: idle + deployed == senior + junior claims",
+            idle + deployed === claims,
+            `idle ${idle} + deployed ${deployed} = ${idle + deployed} vs claims ${claims}`
+        );
+        console.log(`        NAV ${await controller.nav()} (idle ${idle}, deployed ${deployed})`);
 
         // Share decimals = asset decimals + 3 (the ERC-4626 inflation-attack offset).
         const assetMeta = new ethers.Contract(b.asset, ["function decimals() view returns (uint8)", "function symbol() view returns (string)"], ethers.provider);
