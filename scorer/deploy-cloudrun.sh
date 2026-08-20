@@ -12,7 +12,34 @@ REGION="${REGION:-europe-west1}"
 CHAIN_ID="${CHAIN_ID:?set CHAIN_ID (677 mainnet, 968 testnet)}"
 SERVICE="${SERVICE:-cifra-scorer}"
 REPO="${REPO:-cifra}"
+SECRET="${SECRET:-cifra-scorer-signing-key}"
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/${SERVICE}"
+
+command -v gcloud >/dev/null || { echo "gcloud is required"; exit 1; }
+
+case "$CHAIN_ID" in
+  677|968) ;;
+  *) echo "CHAIN_ID must be 677 (mainnet) or 968 (testnet); got '$CHAIN_ID'"; exit 1 ;;
+esac
+
+# Fail here rather than deep inside `gcloud run deploy`. CHAIN_ID is signed into every grade,
+# so a service deployed against the wrong chain produces signatures the contract rejects.
+if ! gcloud secrets describe "$SECRET" --project "$PROJECT" >/dev/null 2>&1; then
+  echo "Secret '$SECRET' does not exist in $PROJECT."
+  echo "Create it first:  PROJECT=$PROJECT ./scripts/provision-key.sh"
+  exit 1
+fi
+
+# Artifact Registry repos are not created implicitly — `builds submit --tag` fails with a
+# confusing permissions-shaped error if the repo is missing. Create it idempotently.
+if ! gcloud artifacts repositories describe "$REPO" \
+      --project "$PROJECT" --location "$REGION" >/dev/null 2>&1; then
+  echo "==> creating Artifact Registry repo ${REPO} in ${REGION}"
+  gcloud artifacts repositories create "$REPO" \
+    --project "$PROJECT" --location "$REGION" \
+    --repository-format=docker \
+    --description="Cifra scoring service images"
+fi
 
 echo "==> building and pushing ${IMAGE}"
 gcloud builds submit --project "$PROJECT" --tag "$IMAGE" .
@@ -29,7 +56,7 @@ gcloud run deploy "$SERVICE" \
   --region "$REGION" \
   --image "${IMAGE}@${DIGEST}" \
   --set-env-vars "CHAIN_ID=${CHAIN_ID},IMAGE_DIGEST=${DIGEST}" \
-  --set-secrets "SCORER_SIGNING_KEY=cifra-scorer-signing-key:latest" \
+  --set-secrets "SCORER_SIGNING_KEY=${SECRET}:latest" \
   --no-allow-unauthenticated \
   --min-instances=0 \
   --max-instances=4 \
