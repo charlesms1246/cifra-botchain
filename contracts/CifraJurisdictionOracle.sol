@@ -11,9 +11,14 @@ import { IWeb2JsonVerification } from "@flarenetwork/flare-periphery-contracts/c
 ///         yields the jurisdiction risk (bps) used by Cifra's scoring model.
 ///
 ///         This is the ONE scoring input that is NOT buyer-private (a country's region is public),
-///         so it is the right thing to source verifiably via Web2Json — without ever putting the
-///         buyer's private financials on-chain (those stay in the TEE). The buyer-private inputs
-///         remain encrypted-into-the-enclave; only this public jurisdiction signal is attested here.
+///         which is why it is the only term that can be sourced on-chain at all. The
+///         buyer-private inputs never leave the scoring service; only this public jurisdiction
+///         signal is attested here.
+///
+///         NOT DEPLOYED ON BOT CHAIN. This is the last contract still importing the
+///         flare-periphery package, and it depends on FDC Web2Json, which BOT Chain lacks. See
+///         contracts/README.md and claude-docs/PORTING_ANALYSIS.md §6.1 for the open decision
+///         on whether to delete it outright.
 ///
 ///         The FDC verifier is injected (constructor) for unit-testability; on Coston2 pass the
 ///         address from `ContractRegistry.getFdcVerification()`.
