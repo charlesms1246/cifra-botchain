@@ -18,6 +18,13 @@ if (!fs.existsSync(src)) {
     process.exit(1);
 }
 const dep = JSON.parse(fs.readFileSync(src, "utf8"));
+if (dep.chainId === 31337 || dep.chainId === 1337) {
+    console.error(
+        `Refusing to sync a LOCAL deployment (chainId ${dep.chainId}). Those addresses exist only ` +
+            `on an ephemeral in-memory chain and would silently repoint the app at nothing.`
+    );
+    process.exit(1);
+}
 fs.writeFileSync(dst, JSON.stringify(dep, null, 2) + "\n");
 console.log(`synced ${network} (chainId ${dep.chainId}) -> frontend/lib/deployment.json`);
 for (const [k, v] of Object.entries<any>(dep.books)) console.log(`  ${k}: controller ${v.controller}`);

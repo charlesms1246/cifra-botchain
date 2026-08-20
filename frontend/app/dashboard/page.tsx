@@ -36,12 +36,12 @@ function Dashboard() {
   const controller = { address: book.controller, abi: controllerAbi } as const;
   const { data } = useReadContracts({
     contracts: [
-      { ...controller, functionName: "nav" },
-      { ...controller, functionName: "totalDeployed" },
-      { ...controller, functionName: "paused" },
-      { ...controller, functionName: "seniorYieldShareBps" },
-      { ...controller, functionName: "claimOf", args: [book.seniorVault] },
-      { ...controller, functionName: "claimOf", args: [book.juniorVault] },
+      { ...controller, chainId: activeChain.id, functionName: "nav" },
+      { ...controller, chainId: activeChain.id, functionName: "totalDeployed" },
+      { ...controller, chainId: activeChain.id, functionName: "paused" },
+      { ...controller, chainId: activeChain.id, functionName: "seniorYieldShareBps" },
+      { ...controller, chainId: activeChain.id, functionName: "claimOf", args: [book.seniorVault] },
+      { ...controller, chainId: activeChain.id, functionName: "claimOf", args: [book.juniorVault] },
     ],
     query: { refetchInterval: 8000 },
   });
@@ -49,7 +49,7 @@ function Dashboard() {
   // Kept as its own call: mixing a second ABI into the array above collapses wagmi's inferred
   // function-name union to the intersection, and every entry fails to type-check.
   const { data: oracle } = useReadContracts({
-    contracts: [{ address: book.navOracle ?? "0x", abi: navOracleAbi, functionName: "quote" }],
+    contracts: [{ chainId: activeChain.id, address: book.navOracle ?? "0x", abi: navOracleAbi, functionName: "quote" }],
     query: { enabled: Boolean(book.navOracle), refetchInterval: 30000 },
   });
 
@@ -145,9 +145,9 @@ function TrancheCard({
   // Public vault facts — always read, wallet or not.
   const { data: vaultReads } = useReadContracts({
     contracts: [
-      { address: tranche.vault, abi: vaultAbi, functionName: "totalAssets" },
-      { address: tranche.vault, abi: vaultAbi, functionName: "decimals" },
-      { address: tranche.vault, abi: vaultAbi, functionName: "symbol" },
+      { chainId: activeChain.id, address: tranche.vault, abi: vaultAbi, functionName: "totalAssets" },
+      { chainId: activeChain.id, address: tranche.vault, abi: vaultAbi, functionName: "decimals" },
+      { chainId: activeChain.id, address: tranche.vault, abi: vaultAbi, functionName: "symbol" },
     ],
     query: { refetchInterval: 8000 },
   });
@@ -155,9 +155,9 @@ function TrancheCard({
   // Only the connected user's own position needs an address.
   const { data: userReads } = useReadContracts({
     contracts: [
-      { address: tranche.vault, abi: vaultAbi, functionName: "balanceOf", args: [address ?? "0x0000000000000000000000000000000000000000"] },
-      { address: book.asset, abi: erc20Abi, functionName: "balanceOf", args: [address ?? "0x0000000000000000000000000000000000000000"] },
-      { address: book.asset, abi: erc20Abi, functionName: "allowance", args: [address ?? "0x0000000000000000000000000000000000000000", tranche.vault] },
+      { chainId: activeChain.id, address: tranche.vault, abi: vaultAbi, functionName: "balanceOf", args: [address ?? "0x0000000000000000000000000000000000000000"] },
+      { chainId: activeChain.id, address: book.asset, abi: erc20Abi, functionName: "balanceOf", args: [address ?? "0x0000000000000000000000000000000000000000"] },
+      { chainId: activeChain.id, address: book.asset, abi: erc20Abi, functionName: "allowance", args: [address ?? "0x0000000000000000000000000000000000000000", tranche.vault] },
     ],
     query: { enabled: Boolean(address), refetchInterval: 8000 },
   });
@@ -188,10 +188,10 @@ function TrancheCard({
       return;
     }
     if (needsApproval) {
-      writeContract({ address: book.asset, abi: erc20Abi, functionName: "approve", args: [tranche.vault, maxUint256] });
+      writeContract({ chainId: activeChain.id, address: book.asset, abi: erc20Abi, functionName: "approve", args: [tranche.vault, maxUint256] });
       return;
     }
-    writeContract({ address: tranche.vault, abi: vaultAbi, functionName: "deposit", args: [parsed, address!] });
+    writeContract({ chainId: activeChain.id, address: tranche.vault, abi: vaultAbi, functionName: "deposit", args: [parsed, address!] });
   };
 
   return (

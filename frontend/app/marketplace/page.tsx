@@ -7,6 +7,7 @@ import { attestationAbi, controllerAbi, registryAbi, REGISTRY_STATUS } from "@/l
 import { SHARED } from "@/lib/books";
 import { useBook } from "@/lib/use-book";
 import { fetchRegisteredInvoices, type ChainInvoice } from "@/lib/invoices";
+import { activeChain } from "@/lib/chain";
 import { amount, bpsToPct, dateOf, daysUntil, fromBytes32, shortHex } from "@/lib/format";
 import { BookSwitcher } from "@/components/book-switcher";
 import { RiskBadge } from "@/components/risk-badge";
@@ -41,9 +42,9 @@ function Marketplace() {
   // controller — an invoice funded from the USDT book is simply absent from the BOT controller.
   const { data } = useReadContracts({
     contracts: ids.flatMap((id) => [
-      { address: SHARED.registry, abi: registryAbi, functionName: "getInvoice", args: [id] } as const,
-      { address: SHARED.attestation, abi: attestationAbi, functionName: "gradeForInvoice", args: [id] } as const,
-      { address: book.controller, abi: controllerAbi, functionName: "fundingOf", args: [id] } as const,
+      { chainId: activeChain.id, address: SHARED.registry, abi: registryAbi, functionName: "getInvoice", args: [id] } as const,
+      { chainId: activeChain.id, address: SHARED.attestation, abi: attestationAbi, functionName: "gradeForInvoice", args: [id] } as const,
+      { chainId: activeChain.id, address: book.controller, abi: controllerAbi, functionName: "fundingOf", args: [id] } as const,
     ]),
     query: { enabled: ids.length > 0, refetchInterval: 10000 },
   });

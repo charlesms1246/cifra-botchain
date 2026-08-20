@@ -13,7 +13,7 @@ import { activeChain } from "@/lib/chain";
  */
 export function LiveStats() {
   const { data } = useReadContracts({
-    contracts: BOOKS.map((b) => ({ address: b.controller, abi: controllerAbi, functionName: "nav" as const })),
+    contracts: BOOKS.map((b) => ({ chainId: activeChain.id, address: b.controller, abi: controllerAbi, functionName: "nav" as const })),
     query: { refetchInterval: 10000 },
   });
 

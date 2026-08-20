@@ -51,14 +51,14 @@ function InvoiceDetail({ id }: { id: `0x${string}` }) {
 
   const { data, refetch } = useReadContracts({
     contracts: [
-      { address: SHARED.registry, abi: registryAbi, functionName: "getInvoice", args: [id] },
-      { address: SHARED.attestation, abi: attestationAbi, functionName: "gradeForInvoice", args: [id] },
-      { address: book.controller, abi: controllerAbi, functionName: "fundingOf", args: [id] },
-      { address: book.settlement, abi: settlementAbi, functionName: "amountDue", args: [id] },
-      { address: book.settlement, abi: settlementAbi, functionName: "isDefaultable", args: [id] },
-      { address: book.settlement, abi: settlementAbi, functionName: "defaultableAt", args: [id] },
-      { address: book.asset, abi: erc20Abi, functionName: "allowance", args: [address ?? "0x0000000000000000000000000000000000000000", book.settlement] },
-      { address: book.controller, abi: controllerAbi, functionName: "operator" },
+      { chainId: activeChain.id, address: SHARED.registry, abi: registryAbi, functionName: "getInvoice", args: [id] },
+      { chainId: activeChain.id, address: SHARED.attestation, abi: attestationAbi, functionName: "gradeForInvoice", args: [id] },
+      { chainId: activeChain.id, address: book.controller, abi: controllerAbi, functionName: "fundingOf", args: [id] },
+      { chainId: activeChain.id, address: book.settlement, abi: settlementAbi, functionName: "amountDue", args: [id] },
+      { chainId: activeChain.id, address: book.settlement, abi: settlementAbi, functionName: "isDefaultable", args: [id] },
+      { chainId: activeChain.id, address: book.settlement, abi: settlementAbi, functionName: "defaultableAt", args: [id] },
+      { chainId: activeChain.id, address: book.asset, abi: erc20Abi, functionName: "allowance", args: [address ?? "0x0000000000000000000000000000000000000000", book.settlement] },
+      { chainId: activeChain.id, address: book.controller, abi: controllerAbi, functionName: "operator" },
     ],
     query: { refetchInterval: 8000 },
   });
@@ -190,9 +190,9 @@ function InvoiceDetail({ id }: { id: `0x${string}` }) {
                 onClick={() => {
                   reset();
                   if (needsApproval) {
-                    writeContract({ address: book.asset, abi: erc20Abi, functionName: "approve", args: [book.settlement, maxUint256] });
+                    writeContract({ chainId: activeChain.id, address: book.asset, abi: erc20Abi, functionName: "approve", args: [book.settlement, maxUint256] });
                   } else {
-                    writeContract({ address: book.settlement, abi: settlementAbi, functionName: "payInvoice", args: [id] });
+                    writeContract({ chainId: activeChain.id, address: book.settlement, abi: settlementAbi, functionName: "payInvoice", args: [id] });
                   }
                   after();
                 }}
@@ -214,7 +214,7 @@ function InvoiceDetail({ id }: { id: `0x${string}` }) {
               disabled={!isConnected || !defaultable || isPending || confirming || wrongChain}
               onClick={() => {
                 reset();
-                writeContract({ address: book.settlement, abi: settlementAbi, functionName: "markDefault", args: [id] });
+                writeContract({ chainId: activeChain.id, address: book.settlement, abi: settlementAbi, functionName: "markDefault", args: [id] });
                 after();
               }}
             >
@@ -236,7 +236,7 @@ function InvoiceDetail({ id }: { id: `0x${string}` }) {
             disabled={isPending || confirming || wrongChain}
             onClick={() => {
               reset();
-              writeContract({ address: book.controller, abi: controllerAbi, functionName: "fundInvoice", args: [id] });
+              writeContract({ chainId: activeChain.id, address: book.controller, abi: controllerAbi, functionName: "fundInvoice", args: [id] });
               after();
             }}
           >

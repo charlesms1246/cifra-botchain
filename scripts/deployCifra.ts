@@ -275,8 +275,14 @@ async function main() {
 
     // Keep the frontend's copy in step. Vercel only ever sees `frontend/`, so it cannot read
     // `deployments/` — and a stale copy means the UI silently points at dead addresses.
+    //
+    // NEVER sync from a local dry run: those addresses only exist on an ephemeral in-memory
+    // chain, and writing them here silently repoints the app at contracts that do not exist on
+    // any real network. (This is not hypothetical — it happened.)
     const feDir = path.join(__dirname, "..", "frontend", "lib");
-    if (fs.existsSync(feDir)) {
+    if (local) {
+        console.log(`(local dry run — frontend/lib/deployment.json left untouched)`);
+    } else if (fs.existsSync(feDir)) {
         fs.writeFileSync(path.join(feDir, "deployment.json"), JSON.stringify(out, null, 2) + "\n");
         console.log(`Synced: frontend/lib/deployment.json`);
     }

@@ -1,7 +1,7 @@
 {
     "name": "cifra",
     "version": "0.1.0",
-    "description": "Private invoice factoring on BOT Chain \u2014 off-chain scored risk grades, on-chain settlement",
+    "description": "Private invoice factoring on BOT Chain — off-chain scored risk grades, on-chain settlement",
     "license": "MIT",
     "scripts": {
         "compile": "hardhat compile",
@@ -11,7 +11,8 @@
         "format:fix": "prettier --write \"contracts/**/*.sol\" \"scripts/**/*.ts\"",
         "deploy:testnet": "hardhat run scripts/deployCifra.ts --network botchainTestnet",
         "deploy:mainnet": "hardhat run scripts/deployCifra.ts --network botchain",
-        "test:fork": "FORK=1 hardhat test test/fork/MainnetFork.test.ts"
+        "test:fork": "FORK=1 hardhat test test/fork/MainnetFork.test.ts",
+        "sync:privy": "node -e \"const f=require('fs');const m=f.readFileSync('.env','utf8').match(/^\\s*(?:NEXT_PUBLIC_)?PRIVY_APP_ID\\s*=\\s*[\\\"']?([^\\\"'\\r\\n]+)/m);if(!m)throw new Error('no PRIVY_APP_ID in .env');f.writeFileSync('frontend/.env.local','NEXT_PUBLIC_PRIVY_APP_ID='+m[1].trim()+'\\n');console.log('synced')\""
     },
     "devDependencies": {
         "@nomicfoundation/hardhat-toolbox": "^5.0.0",

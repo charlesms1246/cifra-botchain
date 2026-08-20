@@ -30,8 +30,25 @@ export const botchainTestnet = defineChain({
 
 export const CHAINS = { 677: botchain, 968: botchainTestnet } as const;
 
-/** The chain this build talks to, taken from the synced deployment record. */
-export const activeChain = CHAINS[deployment.chainId as 677 | 968] ?? botchainTestnet;
+/** The chain this build talks to, taken from the synced deployment record.
+ *
+ *  Deliberately throws on an unrecognised chainId rather than defaulting. A record from another
+ *  chain — a local dry run, say — would otherwise leave the app quietly reading addresses that
+ *  do not exist on the chain it is talking to: every call succeeds, every value is zero, and
+ *  nothing anywhere says why. A failed build is much easier to diagnose. */
+function resolveChain() {
+  const c = CHAINS[deployment.chainId as 677 | 968];
+  if (!c) {
+    throw new Error(
+      `frontend/lib/deployment.json has chainId ${deployment.chainId}, which is not a BOT Chain ` +
+        `network (677 mainnet / 968 testnet). Re-sync it: ` +
+        `NETWORK=botchainTestnet npx ts-node scripts/syncFrontendDeployment.ts`
+    );
+  }
+  return c;
+}
+
+export const activeChain = resolveChain();
 
 export const EXPLORER = activeChain.blockExplorers!.default.url;
 export const txUrl = (hash: string) => `${EXPLORER}/tx/${hash}`;
