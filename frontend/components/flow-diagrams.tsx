@@ -3,7 +3,7 @@
 const TERRACOTTA = "#de7356";
 const GREEN = "#5bbf8f";
 
-// Private scoring: encrypted invoice data → TEE (never leaves) → signed grade → chain.
+// Private scoring: invoice data → scoring service (never published) → signed grade → chain.
 export function PrivateScoringFlow() {
   return (
     <svg viewBox="0 0 900 260" className="w-full min-w-[560px]" role="img" aria-label="Private scoring flow">
@@ -23,13 +23,13 @@ export function PrivateScoringFlow() {
         <circle cx="460" cy="96" r="18" fill="rgba(222,115,86,0.14)" />
         <path d="M453 96 v-5 a7 7 0 0 1 14 0 v5" fill="none" stroke={TERRACOTTA} strokeWidth="2" />
         <rect x="452" y="96" width="16" height="12" rx="2" fill={TERRACOTTA} />
-        <text x="460" y="140" textAnchor="middle" fill="#fff" fontSize="13" fontWeight="600">Flare TEE</text>
+        <text x="460" y="140" textAnchor="middle" fill="#fff" fontSize="13" fontWeight="600">Scoring service</text>
         <text x="460" y="158" textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="11">Compute Extension</text>
         <text x="460" y="182" textAnchor="middle" fill={TERRACOTTA} fontSize="10.5">risk model · signs grade</text>
       </g>
       <g>
         <rect x="710" y="86" width="150" height="88" rx="12" fill="rgba(91,191,143,0.05)" stroke="rgba(91,191,143,0.35)" />
-        <text x="785" y="118" textAnchor="middle" fill="#fff" fontSize="14" fontWeight="600">Flare chain</text>
+        <text x="785" y="118" textAnchor="middle" fill="#fff" fontSize="14" fontWeight="600">BOT Chain</text>
         <text x="785" y="138" textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize="11">attestation NFT</text>
         <circle cx="785" cy="156" r="9" fill="rgba(91,191,143,0.18)" />
         <text x="785" y="160" textAnchor="middle" fill={GREEN} fontSize="11" fontWeight="700">A</text>
@@ -38,7 +38,7 @@ export function PrivateScoringFlow() {
       <text x="275" y="120" textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize="10.5">encrypted in</text>
       <path id="p2" d="M560 130 H710" fill="none" stroke="rgba(91,191,143,0.4)" strokeWidth="1.5" markerEnd="url(#ar)" />
       <text x="635" y="120" textAnchor="middle" fill={GREEN} fontSize="10.5">signed grade out</text>
-      <text x="460" y="34" textAnchor="middle" fill="rgba(255,255,255,0.45)" fontSize="10.5">raw data never leaves the enclave</text>
+      <text x="460" y="34" textAnchor="middle" fill="rgba(255,255,255,0.45)" fontSize="10.5">buyer data is never published on-chain</text>
       <rect width="10" height="10" rx="2" fill={TERRACOTTA}>
         <animateMotion dur="2.4s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" calcMode="linear"><mpath href="#p1" /></animateMotion>
         <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.85;1" dur="2.4s" repeatCount="indefinite" />
@@ -51,19 +51,19 @@ export function PrivateScoringFlow() {
   );
 }
 
-// The full loop, end-to-end — every stage Flare-native and live on Coston2 (green ticks),
+// The full loop, end-to-end — every stage on BOT Chain and live on testnet (green ticks),
 // with particles flowing through the whole pipeline.
 export function FullLoopFlow() {
   const W = 152;
   const nodes = [
-    { x: 8, t: "XRPL onboard", s: "Smart Accounts" },
-    { x: 210, t: "Flare TEE score", s: "Web2Json provenance", accent: true },
+    { x: 8, t: "Register", s: "buyer = commitment" },
+    { x: 210, t: "Score off-chain", s: "signed + model pinned", accent: true },
     { x: 412, t: "Grade NFT", s: "signed A–D" },
-    { x: 614, t: "FXRP vault", s: "senior · junior" },
-    { x: 816, t: "Settle / default", s: "FDC-proven" },
+    { x: 614, t: "BOT / USDT vault", s: "senior · junior" },
+    { x: 816, t: "Settle / default", s: "observed on-chain" },
   ];
   return (
-    <svg viewBox="0 0 980 190" className="w-full min-w-[720px]" role="img" aria-label="The full loop, Flare-native">
+    <svg viewBox="0 0 980 190" className="w-full min-w-[720px]" role="img" aria-label="The full loop on BOT Chain">
       <defs>
         <marker id="arL" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6 Z" fill="rgba(255,255,255,0.4)" /></marker>
       </defs>
@@ -86,7 +86,7 @@ export function FullLoopFlow() {
           <animateMotion dur="2s" begin={`${i * 0.5}s`} repeatCount="indefinite"><mpath href={`#seg${i}`} /></animateMotion>
         </rect>
       ))}
-      <text x="490" y="178" textAnchor="middle" fill="rgba(91,191,143,0.9)" fontSize="10.5">every step is a real Coston2 transaction · live today</text>
+      <text x="490" y="178" textAnchor="middle" fill="rgba(91,191,143,0.9)" fontSize="10.5">every step is a real on-chain transaction · live on testnet</text>
     </svg>
   );
 }
@@ -105,16 +105,16 @@ export function CapitalCycleFlow() {
       <defs>
         <marker id="ar2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6 Z" fill="rgba(255,255,255,0.45)" /></marker>
       </defs>
-      {node(40, 130, 150, 64, "Supplier", "gets FXRP now")}
+      {node(40, 130, 150, 64, "Supplier", "paid now")}
       {node(375, 128, 170, 70, "Cifra vault", "senior · junior", true)}
-      {node(720, 44, 150, 62, "Funders", "deposit FXRP")}
+      {node(720, 44, 150, 62, "Funders", "deposit BOT/USDT")}
       {node(720, 214, 150, 62, "Buyer", "settles at maturity")}
       <path id="c1" d="M720 75 C 620 88, 560 110, 545 150" fill="none" stroke="rgba(91,191,143,0.4)" strokeWidth="1.5" markerEnd="url(#ar2)" />
-      <text x="618" y="96" textAnchor="middle" fill={GREEN} fontSize="10.5">deposit FXRP</text>
+      <text x="618" y="96" textAnchor="middle" fill={GREEN} fontSize="10.5">deposit</text>
       <path id="c2" d="M375 163 H190" fill="none" stroke={TERRACOTTA} strokeWidth="1.5" markerEnd="url(#ar2)" />
       <text x="282" y="152" textAnchor="middle" fill={TERRACOTTA} fontSize="10.5">advance (discounted)</text>
       <path id="c3" d="M720 245 C 620 232, 560 210, 545 176" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5" markerEnd="url(#ar2)" />
-      <text x="616" y="238" textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="10.5">pays face (FDC)</text>
+      <text x="616" y="238" textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="10.5">pays face on-chain</text>
       <path id="c4" d="M560 150 C 640 120, 700 108, 760 100" fill="none" stroke="rgba(91,191,143,0.5)" strokeWidth="1.5" markerEnd="url(#ar2)" strokeDasharray="4 4" />
       <text x="690" y="132" textAnchor="middle" fill={GREEN} fontSize="10.5">principal + yield</text>
       <text x="460" y="300" textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize="10.5">on default, the junior tranche absorbs the loss first — senior is protected</text>

@@ -20,9 +20,9 @@ const malinton = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Cifra — Private Invoice Factoring on Flare",
+  title: "Cifra — Private Invoice Factoring on BOT Chain",
   description:
-    "Suppliers factor invoices for FXRP liquidity. Buyer credit is scored privately inside a TEE — only a signed risk grade reaches the chain.",
+    "Suppliers factor invoices for instant BOT or USDT liquidity. Buyer credit is scored off-chain against a published model — only a signed risk grade reaches the chain.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

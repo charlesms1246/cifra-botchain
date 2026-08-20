@@ -1,191 +1,280 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { Suspense, use } from "react";
 import Link from "next/link";
-import { useAccount, useChainId, useSwitchChain, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { hexToString } from "viem";
 import {
-  CONTRACTS,
-  registryAbi,
+  useAccount,
+  useChainId,
+  useReadContracts,
+  useSwitchChain,
+  useWaitForTransactionReceipt,
+  useWriteContract,
+} from "wagmi";
+import { maxUint256 } from "viem";
+import {
   attestationAbi,
   controllerAbi,
+  erc20Abi,
+  registryAbi,
+  settlementAbi,
+  FUNDING_STATUS,
   REGISTRY_STATUS,
 } from "@/lib/contracts";
+import { DEPLOYMENT, SHARED } from "@/lib/books";
+import { useBook } from "@/lib/use-book";
+import { activeChain, addrUrl, txUrl } from "@/lib/chain";
+import { amount, bpsToPct, dateOf, daysUntil, fromBytes32, shortHex } from "@/lib/format";
+import { BookSwitcher } from "@/components/book-switcher";
+import { RiskBadge } from "@/components/risk-badge";
+import { StatusDot, invoiceState } from "@/components/status-dot";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { RiskBadge } from "@/components/risk-badge";
-import { bpsToPct, shortHex } from "@/lib/format";
-import { addrUrl, coston2 } from "@/lib/chain";
-import { Check, Circle, ExternalLink, Lock, ArrowLeft } from "lucide-react";
 
-const isBytes32 = (s: string) => /^0x[0-9a-fA-F]{64}$/.test(s);
+export default function InvoicePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  return (
+    <Suspense fallback={<div className="mx-auto max-w-4xl px-4 py-10 sm:px-5">Loading…</div>}>
+      <InvoiceDetail id={id as `0x${string}`} />
+    </Suspense>
+  );
+}
 
-export default function InvoiceDetail() {
-  const params = useParams<{ id: string }>();
-  const id = params.id;
-  const live = isBytes32(id);
+function InvoiceDetail({ id }: { id: `0x${string}` }) {
+  const [book, setBook] = useBook();
+  const { address, isConnected } = useAccount();
+  const chainId = useChainId();
+  const { switchChain } = useSwitchChain();
+  const wrongChain = isConnected && chainId !== activeChain.id;
 
-  const { data } = useReadContracts({
+  const { writeContract, data: hash, isPending, error, reset } = useWriteContract();
+  const { isLoading: confirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const { data, refetch } = useReadContracts({
     contracts: [
-      { address: CONTRACTS.registry as `0x${string}`, abi: registryAbi, functionName: "exists", args: [id as `0x${string}`] },
-      { address: CONTRACTS.registry as `0x${string}`, abi: registryAbi, functionName: "getInvoice", args: [id as `0x${string}`] },
-      { address: CONTRACTS.attestation as `0x${string}`, abi: attestationAbi, functionName: "gradeForInvoice", args: [id as `0x${string}`] },
+      { address: SHARED.registry, abi: registryAbi, functionName: "getInvoice", args: [id] },
+      { address: SHARED.attestation, abi: attestationAbi, functionName: "gradeForInvoice", args: [id] },
+      { address: book.controller, abi: controllerAbi, functionName: "fundingOf", args: [id] },
+      { address: book.settlement, abi: settlementAbi, functionName: "amountDue", args: [id] },
+      { address: book.settlement, abi: settlementAbi, functionName: "isDefaultable", args: [id] },
+      { address: book.settlement, abi: settlementAbi, functionName: "defaultableAt", args: [id] },
+      { address: book.asset, abi: erc20Abi, functionName: "allowance", args: [address ?? "0x0000000000000000000000000000000000000000", book.settlement] },
+      { address: book.controller, abi: controllerAbi, functionName: "operator" },
     ],
-    query: { enabled: live, refetchInterval: 10000 },
+    query: { refetchInterval: 8000 },
   });
 
-  const loading = live && data === undefined;
-  const exists = (data?.[0]?.result as boolean | undefined) ?? false;
-  const inv = data?.[1]?.result as { supplier: string; buyerCommitment: string; faceAmount: bigint; dueDate: bigint; status: number } | undefined;
-  const grade = data?.[2]?.result as { grade: string; riskScoreBps: number; discountRateBps: number; teeSigner: string } | undefined;
+  const reg = data?.[0]?.result as
+    | { supplier: string; buyerCommitment: string; faceAmount: bigint; dueDate: bigint; status: number }
+    | undefined;
+  const grade = data?.[1]?.result as
+    | { grade: string; riskScoreBps: number; discountRateBps: number; scorerSigner: string; modelVersion: string; imageDigest: string }
+    | undefined;
+  const funding = data?.[2]?.result as readonly [string, bigint, bigint, bigint, number] | undefined;
+  const due = (data?.[3]?.result as bigint | undefined) ?? 0n;
+  const defaultable = (data?.[4]?.result as boolean | undefined) ?? false;
+  const defaultableAt = (data?.[5]?.result as bigint | undefined) ?? 0n;
+  const allowance = (data?.[6]?.result as bigint | undefined) ?? 0n;
+  const operator = data?.[7]?.result as string | undefined;
 
-  // Everything below is read live on-chain — no seed/fallback data.
-  const status = exists && inv ? REGISTRY_STATUS[Number(inv.status)] : loading ? "…" : "—";
-  const attested = !!grade && grade.teeSigner !== "0x0000000000000000000000000000000000000000";
-  const gradeLetter = attested ? hexToString(grade!.grade as `0x${string}`, { size: 32 }).replace(/\0/g, "") : "?";
-  const discountBps = attested ? grade!.discountRateBps : 0;
-  const faceFxrp = inv ? Number(inv.faceAmount) / 1e6 : 0;
-  const supplier = inv?.supplier ?? "—";
-
-  const statusIdx = ["Registered", "Funded", "Settled"].indexOf(status === "Defaulted" ? "Settled" : status);
-  const steps = [
-    { key: "register", label: "Registered", done: statusIdx >= 0, sub: "XRPL-native supplier · Smart Accounts" },
-    { key: "attest", label: "Scored & attested", done: attested || statusIdx >= 1, sub: attested ? `grade ${gradeLetter} · TEE ${shortHex(grade!.teeSigner)}` : "TEE-signed grade, bound to this invoice" },
-    { key: "fund", label: "Funded", done: statusIdx >= 1, sub: `advance = face × (1 − ${bpsToPct(discountBps)})` },
-    status === "Defaulted"
-      ? { key: "default", label: "Defaulted", done: true, sub: "FDC ReferencedPaymentNonexistence" }
-      : { key: "settle", label: "Settled", done: statusIdx >= 2, sub: "FDC Payment attestation · funders repaid" },
-  ];
-
-  // Honest not-found: a valid id that isn't registered on-chain shows nothing plausible.
-  if (live && !loading && !exists) {
+  if (!reg || reg.status === 0) {
     return (
-      <div className="mx-auto max-w-4xl px-5 py-10">
-        <Link href="/marketplace" className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-4 w-4" /> Marketplace
-        </Link>
-        <Card className="mt-4 text-center text-muted-foreground">
-          <div className="font-mono text-xs">{shortHex(id, 8)}</div>
-          <div className="mt-2">This invoice is not registered on-chain.</div>
-        </Card>
+      <div className="mx-auto max-w-4xl px-4 py-10 sm:px-5">
+        <p className="text-sm text-muted-foreground">
+          No invoice with id <span className="font-mono">{shortHex(id, 8)}</span>.{" "}
+          <Link href="/marketplace" className="text-primary underline">
+            Back to invoices
+          </Link>
+        </p>
       </div>
     );
   }
 
-  return (
-    <div className="mx-auto max-w-4xl px-5 py-10">
-      <Link href="/marketplace" className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" /> Marketplace
-      </Link>
+  const status = REGISTRY_STATUS[reg.status];
+  const attested = Boolean(grade && grade.scorerSigner !== "0x0000000000000000000000000000000000000000");
+  const fundingStatus = FUNDING_STATUS[funding?.[4] ?? 0];
+  const dueDate = Number(reg.dueDate);
+  const days = daysUntil(dueDate);
+  const isOperator = Boolean(address && operator && address.toLowerCase() === operator.toLowerCase());
+  const needsApproval = due > 0n && allowance < due;
+  const after = () => setTimeout(() => void refetch(), 1500);
 
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">Invoice</h1>
-            <RiskBadge grade={gradeLetter} />
+  return (
+    <div className="mx-auto max-w-4xl px-4 py-10 sm:px-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <Link href="/marketplace" className="text-xs text-muted-foreground hover:text-foreground">
+            ← Invoices
+          </Link>
+          <h1 className="mt-2 break-all font-mono text-lg sm:text-xl">{id}</h1>
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+            <StatusDot state={invoiceState(status, attested, dueDate)} />
+            <span>due {dateOf(dueDate)}</span>
+            <span>{days >= 0 ? `${days}d left` : `${-days}d overdue`}</span>
           </div>
-          <div className="mt-1 font-mono text-xs text-muted-foreground">{shortHex(id, 8)}</div>
         </div>
-        <Badge>{status}</Badge>
+        <div className="flex items-center gap-3">
+          <RiskBadge grade={attested ? fromBytes32(grade!.grade) : ""} />
+          <BookSwitcher value={book} onChange={setBook} />
+        </div>
       </div>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
-        <Card><CardTitle>Face value</CardTitle><div className="mt-1 text-2xl font-semibold tabular-nums">{faceFxrp} FXRP</div></Card>
-        <Card><CardTitle>Discount</CardTitle><div className="mt-1 text-2xl font-semibold tabular-nums">{bpsToPct(discountBps)}</div></Card>
+      <div className="mt-8 grid gap-4 md:grid-cols-2">
         <Card>
-          <CardTitle>Supplier</CardTitle>
-          <a href={addrUrl(supplier)} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-lg font-medium hover:text-primary">
-            {shortHex(supplier)} <ExternalLink className="h-3.5 w-3.5" />
-          </a>
+          <CardTitle>Invoice</CardTitle>
+          <dl className="mt-4 space-y-3 text-sm">
+            <Row label="Face amount" value={`${amount(reg.faceAmount, book.decimals)} ${book.symbol}`} />
+            <Row label="Supplier" value={<Ext href={addrUrl(reg.supplier)}>{shortHex(reg.supplier, 6)}</Ext>} />
+            <Row
+              label="Buyer"
+              value={<span className="font-mono text-xs">{shortHex(reg.buyerCommitment, 6)}</span>}
+              hint="A commitment hash. The buyer's identity is never published on-chain."
+            />
+            <Row label="Registry status" value={status} />
+            <Row label="Funding ({book})" value={fundingStatus} />
+            {funding && funding[4] !== 0 && (
+              <Row label="Principal advanced" value={`${amount(funding[2], book.decimals)} ${book.symbol}`} />
+            )}
+          </dl>
+        </Card>
+
+        <Card>
+          <CardTitle>Risk grade</CardTitle>
+          {!attested ? (
+            <p className="mt-4 text-sm text-muted-foreground">
+              Not yet scored. The scoring service grades the buyer off-chain and signs the result;
+              only that signature and the grade reach the chain.
+            </p>
+          ) : (
+            <dl className="mt-4 space-y-3 text-sm">
+              <Row label="Grade" value={fromBytes32(grade!.grade)} />
+              <Row label="Risk score" value={bpsToPct(grade!.riskScoreBps)} />
+              <Row label="Discount rate" value={bpsToPct(grade!.discountRateBps)} />
+              <Row label="Signed by" value={<Ext href={addrUrl(grade!.scorerSigner)}>{shortHex(grade!.scorerSigner, 6)}</Ext>} />
+              <Row label="Model" value={fromBytes32(grade!.modelVersion) || "—"} />
+              <Row
+                label="Image digest"
+                value={<span className="font-mono text-xs">{grade!.imageDigest === "0x" + "0".repeat(64) ? "unpinned build" : shortHex(grade!.imageDigest, 6)}</span>}
+                hint="The container that produced this grade. Pull it, re-run the published model on the same inputs, and you get the same number."
+              />
+            </dl>
+          )}
         </Card>
       </div>
 
-      {/* Buyer privacy note */}
-      <Card className="mt-4 flex items-center gap-3 border-primary/20 bg-primary/[0.04]">
-        <Lock className="h-5 w-5 shrink-0 text-primary" />
-        <p className="text-sm text-muted-foreground">
-          The buyer's identity and financials are never on-chain — they're scored inside the TEE. Only the signed
-          risk grade, bound to this invoice, reaches Flare.
+      {/* Buyer actions */}
+      {fundingStatus === "Outstanding" && (
+        <Card className="mt-4">
+          <CardTitle>Settle</CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            The buyer repays face value in {book.symbol} and the contract observes the payment
+            itself — no oracle, no proof, no reserve. Anyone may settle on the buyer&apos;s behalf.
+          </p>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="flex-1 rounded-xl border border-border bg-black/20 p-3">
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Amount due</p>
+              <p className="text-lg font-semibold tabular-nums">
+                {amount(due, book.decimals)} {book.symbol}
+              </p>
+            </div>
+            {wrongChain ? (
+              <Button className="h-11" onClick={() => switchChain({ chainId: activeChain.id })}>
+                Switch network
+              </Button>
+            ) : (
+              <Button
+                className="h-11"
+                disabled={!isConnected || due === 0n || isPending || confirming}
+                onClick={() => {
+                  reset();
+                  if (needsApproval) {
+                    writeContract({ address: book.asset, abi: erc20Abi, functionName: "approve", args: [book.settlement, maxUint256] });
+                  } else {
+                    writeContract({ address: book.settlement, abi: settlementAbi, functionName: "payInvoice", args: [id] });
+                  }
+                  after();
+                }}
+              >
+                {isPending || confirming ? "Confirming…" : needsApproval ? `Approve ${book.symbol}` : "Pay invoice"}
+              </Button>
+            )}
+          </div>
+
+          <div className="mt-4 border-t border-border pt-4">
+            <p className="text-sm text-muted-foreground">
+              {defaultable
+                ? "Past due plus the grace period. Anyone can now write this invoice off — the junior tranche absorbs the loss first."
+                : `Can be defaulted from ${dateOf(defaultableAt)} (${DEPLOYMENT.gracePeriodDays}-day grace after the due date).`}
+            </p>
+            <Button
+              variant="outline"
+              className="mt-3 h-10"
+              disabled={!isConnected || !defaultable || isPending || confirming || wrongChain}
+              onClick={() => {
+                reset();
+                writeContract({ address: book.settlement, abi: settlementAbi, functionName: "markDefault", args: [id] });
+                after();
+              }}
+            >
+              Mark defaulted
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {/* Operator action */}
+      {status === "Registered" && attested && isOperator && (
+        <Card className="mt-4">
+          <CardTitle>Fund this invoice</CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Advances face × (1 − discount) from the {book.label} pool to the supplier. Operator only.
+          </p>
+          <Button
+            className="mt-4 h-11"
+            disabled={isPending || confirming || wrongChain}
+            onClick={() => {
+              reset();
+              writeContract({ address: book.controller, abi: controllerAbi, functionName: "fundInvoice", args: [id] });
+              after();
+            }}
+          >
+            {isPending || confirming ? "Confirming…" : "Fund"}
+          </Button>
+        </Card>
+      )}
+
+      {error && (
+        <p className="mt-4 rounded-lg border border-[color:var(--destructive)]/40 bg-[color:var(--destructive)]/10 p-3 text-xs text-[color:var(--destructive)]">
+          {(error instanceof Error ? error.message : String(error)).split("\n")[0].slice(0, 200)}
         </p>
-      </Card>
-
-      {/* Lifecycle timeline */}
-      <Card className="mt-4">
-        <CardTitle>Lifecycle</CardTitle>
-        <ol className="mt-4 space-y-5">
-          {steps.map((s, i) => (
-            <li key={s.key} className="flex gap-4">
-              <div className="flex flex-col items-center">
-                <span className={`grid h-7 w-7 place-items-center rounded-full border ${s.done ? "border-primary bg-primary/15 text-primary" : "border-border text-muted-foreground"}`}>
-                  {s.done ? <Check className="h-4 w-4" /> : <Circle className="h-3 w-3" />}
-                </span>
-                {i < steps.length - 1 && <span className={`mt-1 h-8 w-px ${s.done ? "bg-primary/40" : "bg-border"}`} />}
-              </div>
-              <div className="pb-1">
-                <div className="font-medium">{s.label}</div>
-                <div className="text-sm text-muted-foreground">{s.sub}</div>
-              </div>
-            </li>
-          ))}
-        </ol>
-      </Card>
-
-      {status === "Registered" && <FundAction id={id} attested={attested} />}
+      )}
+      {isSuccess && hash && (
+        <p className="mt-4 text-xs text-[color:var(--success)]">
+          Confirmed ·{" "}
+          <a className="underline" href={txUrl(hash)} target="_blank" rel="noreferrer">
+            view transaction
+          </a>
+        </p>
+      )}
     </div>
   );
 }
 
-function FundAction({ id, attested }: { id: string; attested: boolean }) {
-  const { address, isConnected } = useAccount();
-  const { data: operator } = useReadContract({
-    address: CONTRACTS.controller as `0x${string}`,
-    abi: controllerAbi,
-    functionName: "operator",
-  });
-  const isOperator = isConnected && !!operator && address?.toLowerCase() === (operator as string).toLowerCase();
-  const chainId = useChainId();
-  const { switchChain } = useSwitchChain();
-  const wrongChain = isConnected && chainId !== coston2.id;
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: mining, isSuccess } = useWaitForTransactionReceipt({ hash });
-
+function Row({ label, value, hint }: { label: string; value: React.ReactNode; hint?: string }) {
   return (
-    <Card className="mt-4">
-      <CardTitle>Fund this invoice</CardTitle>
-      <p className="mt-2 text-sm text-muted-foreground">
-        Funding advances <code className="text-foreground">face × (1 − discount)</code> FXRP from the shared tranche
-        pool to the supplier against the TEE grade. This is an operator-gated action (the vault keeper).
-      </p>
-      <Button
-        className="mt-4"
-        disabled={!isConnected || (!wrongChain && (!attested || !isOperator || isPending || mining || isSuccess))}
-        onClick={() =>
-          wrongChain
-            ? switchChain({ chainId: coston2.id })
-            : writeContract({ address: CONTRACTS.controller as `0x${string}`, abi: controllerAbi, functionName: "fundInvoice", args: [id as `0x${string}`], chainId: coston2.id })
-        }
-      >
-        {!isConnected
-          ? "Connect wallet"
-          : wrongChain
-          ? "Switch to Coston2"
-          : !attested
-          ? "Awaiting attestation"
-          : !isOperator
-          ? "Operator only"
-          : isSuccess
-          ? "Funded ✓"
-          : isPending || mining
-          ? "Confirming…"
-          : "Fund invoice"}
-      </Button>
-      {isConnected && !isOperator && operator ? (
-        <p className="mt-2 text-xs text-muted-foreground">
-          Connected wallet isn&apos;t the vault operator ({shortHex(operator as string)}).
-        </p>
-      ) : null}
-      {error && <p className="mt-2 text-xs text-[color:var(--destructive)]">{(error as { shortMessage?: string }).shortMessage ?? "Transaction failed."}</p>}
-    </Card>
+    <div className="flex items-start justify-between gap-4">
+      <dt className="shrink-0 text-muted-foreground">{label}</dt>
+      <dd className="text-right">
+        <div className="font-medium tabular-nums">{value}</div>
+        {hint && <p className="mt-0.5 max-w-[22rem] text-xs text-muted-foreground">{hint}</p>}
+      </dd>
+    </div>
+  );
+}
+
+function Ext({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noreferrer" className="font-mono text-xs underline hover:text-primary">
+      {children}
+    </a>
   );
 }

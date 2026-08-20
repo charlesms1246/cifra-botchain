@@ -1,0 +1,36 @@
+{
+  "network": "botchainTestnet",
+  "chainId": 968,
+  "deployedAt": "2026-08-19T20:09:00.897Z",
+  "deployer": "0xce4389ACb79463062c362fACB8CB04513fA3D8D8",
+  "config": {
+    "scorerAddress": "0xce4389ACb79463062c362fACB8CB04513fA3D8D8",
+    "operator": "0xce4389ACb79463062c362fACB8CB04513fA3D8D8",
+    "twapWindowSeconds": 1800,
+    "gracePeriodSeconds": 259200
+  },
+  "external": {
+    "wrappedNative": "0xD5452816194a3784dBa983426cCe7c122F4abd30"
+  },
+  "shared": {
+    "CifraInvoiceRegistry": "0xD0aBd1Dc433571b7F0bA243f0b56b3dE3610fd37",
+    "CifraAttestationNFT": "0x16D6d4335A01f75c252f86607a076700427Fea00"
+  },
+  "books": {
+    "bot": {
+      "asset": "0xD5452816194a3784dBa983426cCe7c122F4abd30",
+      "controller": "0x402FF5AA2735Dca465D9784AD7f3A43CCfa7deC2",
+      "seniorVault": "0xCa3b3D111725E1b006FFB8924a88eBB171d6CCfD",
+      "juniorVault": "0x7BEBCFC47be110a0175452456267bFdaD45DdE8B",
+      "settlement": "0xD294781367B339D1E6950b4C0B02a67425D7247E",
+      "nativeDepositHelper": "0xF49941FAe789D724e82102704DA0C359e96026ee"
+    },
+    "usdt": {
+      "asset": "0xa00D072A5A060f48Aa2aF79700a1FaA4140141c6",
+      "controller": "0xDAf65f322A2f750684283f91BC732479989b29fC",
+      "seniorVault": "0x944D4853eC49aDeda031655EBC837a3B0CbeFe56",
+      "juniorVault": "0x66f16F3CAd4f4b6cCace243FA5E075B97A7D7A75",
+      "settlement": "0x0C01c24B3E698FD5d8504A26b5517A1f02Da94f6"
+    }
+  }
+}

@@ -251,6 +251,14 @@ async function main() {
     fs.writeFileSync(file, JSON.stringify(out, null, 2));
     console.log(`\nSaved: ${file}`);
 
+    // Keep the frontend's copy in step. Vercel only ever sees `frontend/`, so it cannot read
+    // `deployments/` — and a stale copy means the UI silently points at dead addresses.
+    const feDir = path.join(__dirname, "..", "frontend", "lib");
+    if (fs.existsSync(feDir)) {
+        fs.writeFileSync(path.join(feDir, "deployment.json"), JSON.stringify(out, null, 2) + "\n");
+        console.log(`Synced: frontend/lib/deployment.json`);
+    }
+
     if (!local) {
         console.log(`\nExplorer:`);
         for (const d of deployedAll) console.log(`  ${d.name.padEnd(28)} ${explorer}/address/${d.address}`);

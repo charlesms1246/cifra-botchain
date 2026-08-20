@@ -1,144 +1,144 @@
 "use client";
 
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { useReadContract, useReadContracts } from "wagmi";
-import { hexToString } from "viem";
-import {
-  CONTRACTS,
-  registryAbi,
-  attestationAbi,
-  jurisdictionOracleAbi,
-  REGISTRY_STATUS,
-  FXRP_DECIMALS,
-} from "@/lib/contracts";
+import { useReadContracts } from "wagmi";
+import { attestationAbi, controllerAbi, registryAbi, REGISTRY_STATUS } from "@/lib/contracts";
+import { SHARED } from "@/lib/books";
+import { useBook } from "@/lib/use-book";
 import { fetchRegisteredInvoices, type ChainInvoice } from "@/lib/invoices";
-import { Card, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { amount, bpsToPct, dateOf, daysUntil, fromBytes32, shortHex } from "@/lib/format";
+import { BookSwitcher } from "@/components/book-switcher";
 import { RiskBadge } from "@/components/risk-badge";
-import { bpsToPct, shortHex, amount } from "@/lib/format";
-import { ShieldCheck } from "lucide-react";
+import { StatusDot, invoiceState } from "@/components/status-dot";
+import { Card } from "@/components/ui/card";
 
-type Status = (typeof REGISTRY_STATUS)[number];
-const STATUS_STYLES: Record<string, string> = {
-  Registered: "text-muted-foreground",
-  Funded: "text-primary border-primary/40 bg-primary/10",
-  Settled: "text-[color:var(--success)] border-[color:var(--success)]/40 bg-[color:var(--success)]/10",
-  Defaulted: "text-[color:var(--destructive)] border-[color:var(--destructive)]/40 bg-[color:var(--destructive)]/10",
-};
-const ZERO = "0x0000000000000000000000000000000000000000";
-
-export default function Marketplace() {
-  const [invoices, setInvoices] = useState<ChainInvoice[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchRegisteredInvoices()
-      .then(setInvoices)
-      .catch(() => setInvoices([]))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const { data: usRisk } = useReadContract({
-    address: CONTRACTS.jurisdictionOracle as `0x${string}`,
-    abi: jurisdictionOracleAbi,
-    functionName: "jurisdictionRiskBps",
-    args: ["US"],
-    query: { refetchInterval: 15000 },
-  });
-
-  // per-invoice: getInvoice (status/face) + gradeForInvoice (grade/discount)
-  const reads = useMemo(
-    () =>
-      invoices.flatMap((inv) => [
-        { address: CONTRACTS.registry as `0x${string}`, abi: registryAbi, functionName: "getInvoice", args: [inv.id] } as const,
-        { address: CONTRACTS.attestation as `0x${string}`, abi: attestationAbi, functionName: "gradeForInvoice", args: [inv.id] } as const,
-      ]),
-    [invoices]
-  );
-  const { data: readsData } = useReadContracts({ contracts: reads, query: { enabled: reads.length > 0, refetchInterval: 12000 } });
-
+export default function MarketplacePage() {
   return (
-    <div className="mx-auto max-w-6xl px-5 py-10">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="font-display text-3xl font-semibold tracking-tight">Invoice marketplace</h1>
-          <p className="mt-1 text-muted-foreground">
-            Live on-chain invoices from the registry. Each carries a TEE-signed grade; the buyer&apos;s financials stay private in the enclave.
-          </p>
-        </div>
-        <Card className="px-4 py-3">
-          <CardTitle>
-            <span className="inline-flex items-center gap-1.5">
-              <ShieldCheck className="h-3.5 w-3.5 text-primary" /> Jurisdiction risk (US) · live via Web2Json
-            </span>
-          </CardTitle>
-          <div className="mt-1 text-2xl font-semibold tabular-nums">{usRisk !== undefined ? bpsToPct(usRisk) : "—"}</div>
-        </Card>
-      </div>
-
-      {loading ? (
-        <p className="mt-10 text-muted-foreground">Loading invoices from chain…</p>
-      ) : invoices.length === 0 ? (
-        <Card className="mt-8 text-center text-muted-foreground">No registered invoices found on-chain yet.</Card>
-      ) : (
-        <div className="mt-8 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {invoices.map((inv, i) => {
-            const invData = readsData?.[2 * i]?.result as
-              | { supplier: string; faceAmount: bigint; dueDate: bigint; status: number }
-              | undefined;
-            const grade = readsData?.[2 * i + 1]?.result as
-              | { grade: string; discountRateBps: number; teeSigner: string }
-              | undefined;
-            const status = (invData ? REGISTRY_STATUS[Number(invData.status)] : "Registered") as Status;
-            const attested = !!grade && grade.teeSigner !== ZERO;
-            const gradeLetter = attested ? hexToString(grade!.grade as `0x${string}`, { size: 32 }).replace(/\0/g, "") : "?";
-            const discountBps = attested ? grade!.discountRateBps : 0;
-
-            return (
-              <Card key={inv.id} className="flex flex-col gap-4 transition-colors hover:border-primary/40">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="text-xs text-muted-foreground">Buyer (private)</div>
-                    <div className="font-mono text-sm">{shortHex(inv.buyerCommitment, 5)}</div>
-                  </div>
-                  <RiskBadge grade={gradeLetter} />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <Field k="Face value" v={`${amount(inv.faceAmount, FXRP_DECIMALS)} FXRP`} />
-                  <Field k="Discount" v={attested ? bpsToPct(discountBps) : "—"} />
-                  <Field k="Due" v={new Date(inv.dueDate * 1000).toLocaleDateString()} />
-                  <Field k="Supplier" v={shortHex(inv.supplier)} />
-                </div>
-
-                <div className="mt-auto flex items-center justify-between border-t border-border pt-4">
-                  <Badge className={STATUS_STYLES[status]}>{status}</Badge>
-                  <Link href={`/invoice/${inv.id}`}>
-                    <Button size="sm" variant={status === "Registered" ? "primary" : "outline"}>
-                      {status === "Registered" ? "Fund" : "View"}
-                    </Button>
-                  </Link>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      <p className="mt-6 text-xs text-muted-foreground">
-        Invoices are read live from the CifraInvoiceRegistry via the Coston2 explorer index; status and grade are read on-chain.
-      </p>
-    </div>
+    <Suspense fallback={<div className="mx-auto max-w-6xl px-4 py-10 sm:px-5">Loading…</div>}>
+      <Marketplace />
+    </Suspense>
   );
 }
 
-function Field({ k, v }: { k: string; v: string }) {
+function Marketplace() {
+  const [book, setBook] = useBook();
+  const [invoices, setInvoices] = useState<ChainInvoice[] | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    fetchRegisteredInvoices()
+      .then((r) => live && setInvoices(r))
+      .catch(() => live && setInvoices([]));
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const ids = useMemo(() => (invoices ?? []).map((i) => i.id), [invoices]);
+
+  // The registry is shared across books, so the funding record has to come from each book's own
+  // controller — an invoice funded from the USDT book is simply absent from the BOT controller.
+  const { data } = useReadContracts({
+    contracts: ids.flatMap((id) => [
+      { address: SHARED.registry, abi: registryAbi, functionName: "getInvoice", args: [id] } as const,
+      { address: SHARED.attestation, abi: attestationAbi, functionName: "gradeForInvoice", args: [id] } as const,
+      { address: book.controller, abi: controllerAbi, functionName: "fundingOf", args: [id] } as const,
+    ]),
+    query: { enabled: ids.length > 0, refetchInterval: 10000 },
+  });
+
+  const rows = (invoices ?? []).map((inv, i) => {
+    const reg = data?.[i * 3]?.result as { faceAmount: bigint; dueDate: bigint; status: number } | undefined;
+    const grade = data?.[i * 3 + 1]?.result as
+      | { grade: string; riskScoreBps: number; discountRateBps: number; scorerSigner: string; modelVersion: string }
+      | undefined;
+    const funding = data?.[i * 3 + 2]?.result as readonly [string, bigint, bigint, bigint, number] | undefined;
+
+    const status = REGISTRY_STATUS[reg?.status ?? 0] ?? "None";
+    const attested = Boolean(grade && grade.scorerSigner !== "0x0000000000000000000000000000000000000000");
+    const fundedInThisBook = Boolean(funding && funding[4] !== 0);
+
+    return { inv, reg, grade, status, attested, fundedInThisBook, dueDate: Number(reg?.dueDate ?? inv.dueDate) };
+  });
+
   return (
-    <div>
-      <div className="text-xs text-muted-foreground">{k}</div>
-      <div className="font-medium tabular-nums">{v}</div>
+    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">Invoices</h1>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground sm:text-base">
+            Every registered invoice on-chain. The buyer is an opaque commitment hash — their
+            identity and payment history are never published. Funders see the signed grade only.
+          </p>
+        </div>
+        <BookSwitcher value={book} onChange={setBook} />
+      </div>
+
+      {invoices === null && <p className="mt-8 text-sm text-muted-foreground">Reading the registry…</p>}
+      {invoices?.length === 0 && (
+        <Card className="mt-8">
+          <p className="text-sm text-muted-foreground">
+            No invoices registered yet.{" "}
+            <Link href="/onboard" className="text-primary underline">
+              Factor one
+            </Link>{" "}
+            to see it here.
+          </p>
+        </Card>
+      )}
+
+      <div className="mt-6 space-y-3">
+        {rows.map(({ inv, reg, grade, status, attested, fundedInThisBook, dueDate }) => {
+          const face = reg?.faceAmount ?? inv.faceAmount;
+          const days = daysUntil(dueDate);
+          return (
+            <Link key={inv.id} href={`/invoice/${inv.id}`} className="block">
+              <Card className="transition-colors hover:border-primary/40">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-4">
+                    <RiskBadge grade={attested ? fromBytes32(grade!.grade) : ""} />
+                    <div className="min-w-0">
+                      <p className="truncate font-mono text-sm">{shortHex(inv.id, 8)}</p>
+                      <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        <StatusDot state={invoiceState(status, attested, dueDate)} />
+                        <span>due {dateOf(dueDate)}</span>
+                        <span>{days >= 0 ? `${days}d left` : `${-days}d overdue`}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-6 sm:justify-end">
+                    <div className="text-right">
+                      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Face</p>
+                      <p className="font-semibold tabular-nums">
+                        {amount(face, book.decimals)} {book.symbol}
+                      </p>
+                    </div>
+                    {attested && (
+                      <div className="text-right">
+                        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Discount</p>
+                        <p className="font-semibold tabular-nums">{bpsToPct(grade!.discountRateBps)}</p>
+                      </div>
+                    )}
+                    {fundedInThisBook && (
+                      <span className="rounded-full border border-border px-2 py-1 text-[11px] text-muted-foreground">
+                        {book.symbol} book
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            </Link>
+          );
+        })}
+      </div>
+
+      <p className="mt-8 text-xs text-muted-foreground">
+        Face amounts are shown in {book.symbol} because you are viewing the {book.label} book. An
+        invoice is faced, funded and repaid in one asset and the protocol never converts between
+        them — switch books if an amount looks wrong.
+      </p>
     </div>
   );
 }

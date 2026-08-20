@@ -104,18 +104,18 @@ function buildSlides(): React.ReactNode[] {
     // 0 — Hero
     <div key="hero" className="text-center">
       <Badge className="mx-auto mb-6 text-muted-foreground">
-        <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Bounty 2 · Confidential Compute Apps
+        <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Real-world assets · BOT Chain
       </Badge>
       <h1 className="font-display text-5xl font-black leading-[0.9] tracking-tight text-white sm:text-7xl">
         PRIVATE INVOICE FACTORING,<br />
         <span className="text-primary">SETTLED ON FLARE.</span>
       </h1>
       <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-white/60">
-        Suppliers turn unpaid invoices into FXRP. The buyer&apos;s credit is scored <em className="text-white/90">privately inside a
-        Flare TEE</em> — their identity and financials never leave the enclave. Funders see only a signed risk grade.
+        Suppliers turn unpaid invoices into BOT or USDT. The buyer&apos;s credit is scored <em className="text-white/90">off-chain against a
+        published model</em> — their identity and financials are never put on-chain. Funders see only a signed risk grade.
       </p>
       <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
-        <Link href="/onboard"><Button size="lg" className="h-13 px-7 font-bold">Onboard an invoice <ArrowRight className="h-4 w-4" /></Button></Link>
+        <Link href="/onboard"><Button size="lg" className="h-13 px-7 font-bold">Factor an invoice <ArrowRight className="h-4 w-4" /></Button></Link>
         <Link href="/dashboard"><Button size="lg" variant="outline" className="h-13 px-7 font-bold">Provide liquidity</Button></Link>
       </div>
     </div>,
@@ -130,7 +130,7 @@ function buildSlides(): React.ReactNode[] {
         The world&apos;s unmet demand for trade finance is <strong className="text-foreground">$2.5&nbsp;trillion</strong>, and SMEs are
         rejected at a <strong className="text-foreground">41%</strong> rate. The deeper blocker isn&apos;t capital — to get scored, a supplier
         must hand a middleman their debtor names, payment histories, and financials. For most SMBs that&apos;s a dealbreaker on its own.
-        A TEE removes the tradeoff: a credit decision on real data, without that data ever becoming visible to the operator.
+        Cifra removes the tradeoff at the point that matters: the credit decision is made on real data, and none of that data is ever published.
       </p>
       <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[["$2.5T", "unmet demand"], ["41%", "SME rejection"], ["0", "debtor records held"], ["1", "grade funders see"]].map(([v, l]) => (
@@ -147,7 +147,7 @@ function buildSlides(): React.ReactNode[] {
       <SectionLabel>The mechanism</SectionLabel>
       <h2 className="max-w-2xl font-display text-3xl font-bold tracking-tight sm:text-5xl">The data goes in. Only a signed grade comes out.</h2>
       <p className="mt-4 max-w-2xl leading-relaxed text-muted-foreground">
-        Encrypted buyer data is scored inside a Flare Compute Extension. The enclave signs the grade with its attested key — the raw
+        Buyer data goes to the scoring service and nowhere else. It signs the grade, the model version and the container digest — the raw
         financials and the debtor&apos;s identity never touch the chain.
       </p>
       <div className="mt-8 overflow-x-auto rounded-2xl border border-border bg-card/40 p-4">
@@ -158,14 +158,14 @@ function buildSlides(): React.ReactNode[] {
     // 3 — Pipeline
     <div key="pipeline">
       <SectionLabel>The lifecycle</SectionLabel>
-      <h2 className="font-display text-3xl font-bold tracking-tight sm:text-5xl">Five steps, every one on Flare.</h2>
+      <h2 className="font-display text-3xl font-bold tracking-tight sm:text-5xl">Five steps, every one on BOT Chain.</h2>
       <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {[
-          { icon: Coins, t: "Register", s: "One XRPL payment via Smart Accounts — no EVM wallet.", p: "Smart Accounts" },
-          { icon: Lock, t: "Score", s: "Buyer data scored privately inside the TEE.", p: "Compute Extension" },
+          { icon: Coins, t: "Register", s: "The buyer is stored as a commitment hash, never a name.", p: "Registry" },
+          { icon: Lock, t: "Score", s: "Graded off-chain; only the signature reaches the chain.", p: "Scoring service" },
           { icon: FileSignature, t: "Attest", s: "The signed grade is minted as an attestation NFT.", p: "ERC-721" },
-          { icon: Banknote, t: "Fund", s: "Funders advance discounted FXRP from a tranche vault.", p: "FAssets · FTSO" },
-          { icon: ShieldCheck, t: "Settle", s: "FDC proves repayment — or certifies default.", p: "FDC" },
+          { icon: Banknote, t: "Fund", s: "Funders advance discounted BOT or USDT from a tranche vault.", p: "ERC-4626" },
+          { icon: ShieldCheck, t: "Settle", s: "The buyer repays on-chain; default is a timestamp check.", p: "No oracle" },
         ].map((x, idx) => (
           <div key={x.t} className="rounded-2xl border border-border bg-card/60 p-5">
             <div className="mb-3 grid h-10 w-10 place-items-center rounded-xl bg-primary/12 text-primary"><x.icon className="h-5 w-5" /></div>
@@ -183,7 +183,7 @@ function buildSlides(): React.ReactNode[] {
       <SectionLabel>The capital cycle</SectionLabel>
       <h2 className="max-w-2xl font-display text-3xl font-bold tracking-tight sm:text-5xl">Funders earn the spread. Junior takes first loss.</h2>
       <p className="mt-4 max-w-2xl leading-relaxed text-muted-foreground">
-        A senior/junior FXRP vault prices capital against each grade. The supplier gets instant liquidity; funders earn yield when the
+        A senior/junior vault prices capital against each grade. The supplier gets instant liquidity; funders earn yield when the
         buyer settles; the junior tranche absorbs losses first if they don&apos;t.
       </p>
       <div className="mt-8 overflow-x-auto rounded-2xl border border-border bg-card/40 p-4">
@@ -193,15 +193,15 @@ function buildSlides(): React.ReactNode[] {
 
     // 5 — Primitives
     <div key="primitives">
-      <SectionLabel>Flare, load-bearing</SectionLabel>
+      <SectionLabel>What is load-bearing</SectionLabel>
       <h2 className="font-display text-3xl font-bold tracking-tight sm:text-5xl">Five primitives, none of them decorative.</h2>
       <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {[
-          { t: "Compute Extension (TEE)", s: "Decrypts and scores debtor data privately; signs only the grade. This is the product." },
-          { t: "FXRP / FAssets", s: "The settlement asset — deposited, advanced, redeemable to native XRP. One chain, no second token." },
-          { t: "Smart Accounts", s: "XRPL-native registration and FXRP receipt with no EVM wallet — one XRPL payment does it all." },
-          { t: "FDC — three types", s: "Web2Json sources the jurisdiction input and anchors a payment-history provenance commitment; Payment confirms settlement; ReferencedPaymentNonexistence certifies default." },
-          { t: "FTSO", s: "Prices vault NAV and shares in USD from the live XRP/USD feed — continuous, not a one-off lookup." },
+          { t: "Scoring service", s: "Runs a published, deterministic model over private debtor data and signs the grade, the model version and the image digest that produced it." },
+          { t: "Two books: BOT and USDT", s: "An invoice is faced, funded and repaid in one token; the protocol never converts. That is what keeps FX risk out of the loan book — and why no price oracle sits on any path where money moves." },
+          { t: "Native BOT, one transaction", s: "A helper wraps and deposits in a single call, so the chain's own token is the default way in and out." },
+          { t: "On-chain settlement", s: "The buyer repays in the book's own token and the contract observes it directly. Default is block.timestamp past due plus grace, callable by anyone. No proofs, no reserve, no oracle." },
+          { t: "Source-signed provenance", s: "The data source signs a commitment to the buyer's history; the scorer refuses to grade inputs that do not match it — without the data being disclosed." },
           { t: "Transparent formula", s: "Published weighted model — repayment, relationship size, tenor, jurisdiction. Auditable logic, private inputs." },
         ].map((x) => (
           <div key={x.t} className="rounded-2xl border border-border bg-card/60 p-5">
@@ -218,7 +218,7 @@ function buildSlides(): React.ReactNode[] {
       <h2 className="font-display text-3xl font-bold tracking-tight sm:text-5xl">Honest about what stays secret — and what doesn&apos;t.</h2>
       <div className="mt-8 grid gap-4 md:grid-cols-2">
         <div className="rounded-2xl border border-primary/25 bg-primary/[0.05] p-6">
-          <div className="mb-3 flex items-center gap-2 text-primary"><Lock className="h-5 w-5" /><span className="font-semibold">Private — inside the TEE</span></div>
+          <div className="mb-3 flex items-center gap-2 text-primary"><Lock className="h-5 w-5" /><span className="font-semibold">Private — never published</span></div>
           <ul className="space-y-2 text-sm text-muted-foreground">
             <li>· The debtor&apos;s raw payment-history and financials</li>
             <li>· The debtor&apos;s identity</li>
@@ -226,36 +226,38 @@ function buildSlides(): React.ReactNode[] {
           </ul>
         </div>
         <div className="rounded-2xl border border-border bg-card/60 p-6">
-          <div className="mb-3 flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-[color:var(--success,#5bbf8f)]" /><span className="font-semibold">Public — on Flare</span></div>
+          <div className="mb-3 flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-[color:var(--success,#5bbf8f)]" /><span className="font-semibold">Public — on BOT Chain</span></div>
           <ul className="space-y-2 text-sm text-muted-foreground">
             <li>· A signed categorical grade (A–D) + discount rate</li>
-            <li>· A commitment binding the exact invoice + a Web2Json commitment vouching the data&apos;s source</li>
-            <li>· FXRP movement, settlement, and default proofs</li>
+            <li>· A commitment binding the exact invoice + a source-signed commitment vouching the data</li>
+            <li>· Capital movement, settlement, and default</li>
           </ul>
         </div>
       </div>
       <p className="mt-5 flex items-start gap-2 text-sm leading-relaxed text-muted-foreground">
         <Scale className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
         <span>
-          What stays trusted, named honestly: the TEE hardware (side-channel risk is real), the data-provider consensus that relays
-          instructions, and the model&apos;s <em className="text-foreground/90">honesty</em> — a TEE proves the code ran as deployed, not that
-          the model is well-calibrated. &ldquo;Verifiably honest&rdquo; and &ldquo;verifiably accurate&rdquo; are different claims.
+          What stays trusted, named honestly: we operate the scoring service, so we can read what is sent to it — encryption keeps buyer
+          data out of proxy logs, not away from us. The signed model version and image digest let anyone recompute a grade, but they do
+          not prove which container actually ran; only hardware attestation could, and we do not have it. And a reproducible model is not
+          automatically a well-calibrated one — &ldquo;verifiably honest&rdquo; and &ldquo;verifiably accurate&rdquo; are different claims.
         </span>
       </p>
     </div>,
 
-    // 7 — Beyond the hackathon (credible path)
+    // 7 — Beyond the demo (credible path)
     <div key="beyond">
-      <SectionLabel>Beyond the hackathon</SectionLabel>
+      <SectionLabel>Beyond the demo</SectionLabel>
       <h2 className="font-display text-3xl font-bold tracking-tight sm:text-5xl">A credible path past the demo.</h2>
       <div className="mt-8 grid gap-4 md:grid-cols-2">
         <div className="rounded-2xl border border-border bg-card/60 p-6">
           <div className="mb-3 font-semibold text-primary">Roadmap</div>
           <ul className="space-y-2 text-sm text-muted-foreground">
-            <li>· <span className="text-foreground">v2 shipped</span> — real buyer data via a Web2Json provenance commitment (proven live)</li>
-            <li>· <span className="text-foreground">v3</span> — a published, governance-set, versioned scoring-model spec</li>
-            <li>· Authenticated accounting-API integration behind the same provenance commitment</li>
-            <li>· Production TEE (GCP Confidential Space), timelock governance, persisted enclave identity</li>
+            <li>· <span className="text-foreground">Mainnet</span> — BOT Chain 677, alongside the live testnet deployment</li>
+            <li>· <span className="text-foreground">A real receivable</span> with a named counterparty, behind debtor approval</li>
+            <li>· Debtor acknowledgement by email + OTP — the notice-of-assignment artifact real factoring turns on</li>
+            <li>· Attested scoring (GCP Confidential Space) — a key rotation, not a contract migration</li>
+            <li>· zkTLS provenance, timelock governance, and a stated regulatory posture</li>
           </ul>
         </div>
         <div className="rounded-2xl border border-border bg-card/60 p-6">
@@ -269,24 +271,25 @@ function buildSlides(): React.ReactNode[] {
       </div>
       <p className="mt-6 max-w-3xl leading-relaxed text-muted-foreground">
         The market is <span className="text-foreground">$2.5&nbsp;trillion</span>, and the wedge is <span className="text-foreground">privacy</span> — the
-        one thing legacy factoring structurally can&apos;t offer. Cifra is the only version that keeps scoring, funding, and settlement
-        <span className="text-foreground"> Flare-native end-to-end</span>, so the TEE-signed grade the whole product hinges on never has to leave the chain it settles on.
+        one thing legacy factoring structurally can&apos;t offer. Cifra keeps scoring, funding and settlement in
+        <span className="text-foreground"> one continuous loop</span>, and settling on-chain makes the guarantees that matter — did the buyer
+        pay, did they default — things the contract can see for itself rather than things anyone has to be trusted about.
       </p>
     </div>,
 
-    // 8 — Everything, Flare-native (recap + full-loop flow)
+    // 8 — The whole loop (recap + full-loop flow)
     <div key="loop">
-      <SectionLabel>Everything, Flare-native</SectionLabel>
-      <h2 className="max-w-2xl font-display text-3xl font-bold tracking-tight sm:text-5xl">One loop. Every piece live on Coston2.</h2>
+      <SectionLabel>The whole loop</SectionLabel>
+      <h2 className="max-w-2xl font-display text-3xl font-bold tracking-tight sm:text-5xl">One loop. Every piece live on testnet.</h2>
       <p className="mt-4 max-w-2xl leading-relaxed text-muted-foreground">
-        Private TEE scoring, FXRP settlement, XRPL-native onboarding, senior/junior tranches, FDC-proven settlement and default, and
-        real buyer-data provenance through Web2Json — one continuous loop, and every step is a verifiable transaction today.
+        Private off-chain scoring, two settlement books, native-BOT deposits, senior/junior tranches, on-chain settlement and
+        permissionless default — one continuous loop, and every step is a verifiable transaction today.
       </p>
       <div className="mt-8 overflow-x-auto rounded-2xl border border-border bg-card/40 p-4">
         <FullLoopFlow />
       </div>
       <div className="mt-5 flex flex-wrap gap-2">
-        {["Private TEE scoring", "FXRP settlement", "XRPL-native onboarding", "Senior/junior tranches", "FDC settle & default", "Web2Json provenance"].map((c) => (
+        {["Private off-chain scoring", "BOT + USDT books", "Native BOT in one tx", "Senior/junior tranches", "On-chain settle & default", "Source-signed provenance"].map((c) => (
           <span key={c} className="inline-flex items-center gap-1.5 rounded-full border border-[color:var(--success,#5bbf8f)]/30 bg-[color:var(--success,#5bbf8f)]/[0.06] px-3 py-1 text-xs text-muted-foreground">
             <Check className="h-3 w-3 text-[color:var(--success,#5bbf8f)]" /> {c}
           </span>
@@ -297,16 +300,16 @@ function buildSlides(): React.ReactNode[] {
     // 9 — The close
     <div key="close" className="text-center">
       <h2 className="mx-auto max-w-4xl font-display text-4xl font-black leading-[0.95] tracking-tight text-white sm:text-6xl">
-        The only one that keeps the entire loop —<br />
-        <span className="text-primary">TEE scoring and invoices — Flare-native.</span>
+        Private credit. Public settlement.<br />
+        <span className="text-primary">The whole loop, on BOT Chain.</span>
       </h2>
       <p className="mx-auto mt-6 max-w-2xl leading-relaxed text-white/60">
-        Private credit scoring in a Flare TEE · FXRP settlement · XRPL-native onboarding · senior/junior tranches · FDC-proven
-        settlement &amp; default · real buyer-data provenance via Web2Json.
+        Private off-chain scoring · BOT and USDT books · native-BOT deposits · senior/junior tranches · on-chain settlement and
+        permissionless default · source-signed input provenance.
       </p>
-      <p className="mt-6 text-lg font-semibold text-[color:var(--success,#5bbf8f)]">Every piece is live on Coston2 today.</p>
+      <p className="mt-6 text-lg font-semibold text-[color:var(--success,#5bbf8f)]">Every piece is live on BOT Chain testnet today.</p>
       <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
-        <Link href="/onboard"><Button size="lg" className="h-13 px-7 font-bold">Onboard an invoice <ArrowRight className="h-4 w-4" /></Button></Link>
+        <Link href="/onboard"><Button size="lg" className="h-13 px-7 font-bold">Factor an invoice <ArrowRight className="h-4 w-4" /></Button></Link>
         <Link href="/dashboard"><Button size="lg" variant="outline" className="h-13 px-7 font-bold">Provide liquidity</Button></Link>
       </div>
     </div>,

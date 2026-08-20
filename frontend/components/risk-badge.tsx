@@ -7,7 +7,7 @@ const GRADE_STYLES: Record<string, string> = {
   D: "border-[color:var(--destructive)]/40 text-[color:var(--destructive)] bg-[color:var(--destructive)]/10",
 };
 
-/** TEE-signed risk grade pill. Shows a muted "Unscored" state when no grade has been attested. */
+/** Signed risk grade pill. Muted "Unscored" state when no grade has been attested. */
 export function RiskBadge({ grade, className }: { grade: string; className?: string }) {
   const g = (grade || "").toUpperCase();
   const style = GRADE_STYLES[g];
@@ -18,7 +18,7 @@ export function RiskBadge({ grade, className }: { grade: string; className?: str
           "inline-flex h-8 items-center justify-center rounded-lg border border-dashed border-border px-2.5 text-xs font-medium text-muted-foreground",
           className
         )}
-        title="Not yet TEE-scored"
+        title="Not yet scored"
       >
         Unscored
       </span>
@@ -27,7 +27,7 @@ export function RiskBadge({ grade, className }: { grade: string; className?: str
   return (
     <span
       className={cn("inline-flex h-8 min-w-8 items-center justify-center rounded-lg border px-2 text-sm font-bold tabular-nums", style, className)}
-      title={`TEE-signed grade ${g}`}
+      title={`Signed grade ${g}`}
     >
       {g}
     </span>

@@ -1,33 +1,34 @@
 "use client";
 
 import { useReadContracts } from "wagmi";
-import { CONTRACTS, navOracleAbi } from "@/lib/contracts";
-import { coston2 } from "@/lib/chain";
-import { usd } from "@/lib/format";
+import { controllerAbi } from "@/lib/contracts";
+import { BOOKS, DEPLOYMENT } from "@/lib/books";
+import { amount } from "@/lib/format";
+import { activeChain } from "@/lib/chain";
 
-const sNav = { address: CONTRACTS.seniorNavOracle as `0x${string}`, abi: navOracleAbi } as const;
-const jNav = { address: CONTRACTS.juniorNavOracle as `0x${string}`, abi: navOracleAbi } as const;
-
-// Live on-chain figures read straight from the deployed Coston2 contracts — proof the landing
-// isn't static marketing: the NAV and price update from the FTSO feed every few seconds.
+/**
+ * Live figures read straight from the deployed contracts — proof the landing page is not static
+ * marketing. Every number here is a value the chain currently holds; nothing is interpolated or
+ * animated toward a target, because a count-up would be a claim the chain has not made.
+ */
 export function LiveStats() {
   const { data } = useReadContracts({
-    contracts: [
-      { ...sNav, functionName: "navUsd", chainId: coston2.id },
-      { ...jNav, functionName: "navUsd", chainId: coston2.id },
-      { ...sNav, functionName: "xrpUsdPrice", chainId: coston2.id },
-    ],
+    contracts: BOOKS.map((b) => ({ address: b.controller, abi: controllerAbi, functionName: "nav" as const })),
     query: { refetchInterval: 10000 },
   });
-  const s = (data?.[0]?.result as [bigint, bigint] | undefined)?.[0] ?? 0n;
-  const j = (data?.[1]?.result as [bigint, bigint] | undefined)?.[0] ?? 0n;
-  const xrp = (data?.[2]?.result as [bigint, bigint] | undefined)?.[0] ?? 0n;
 
-  const tiles = [
-    { v: usd(s + j), l: "Vault NAV (USD)", s: "senior + junior · live via FTSO" },
-    { v: usd(xrp), l: "XRP / USD", s: "FTSO block-latency feed" },
-    { v: "2-of-3", l: "Safe governance", s: "no single key can change params" },
-  ];
+  const tiles = BOOKS.map((b, i) => ({
+    v: amount((data?.[i]?.result as bigint | undefined) ?? 0n, b.decimals),
+    l: `${b.label} vault NAV`,
+    s: `senior + junior · ${b.symbol}`,
+  }));
+
+  tiles.push({
+    v: `${DEPLOYMENT.gracePeriodDays}d`,
+    l: "Grace period",
+    s: "then anyone can default it — no oracle",
+  });
+
   return (
     <div className="mt-6 grid gap-3 sm:grid-cols-3">
       {tiles.map((t) => (
@@ -37,6 +38,9 @@ export function LiveStats() {
           <div className="mt-0.5 text-sm text-muted-foreground">{t.s}</div>
         </div>
       ))}
+      <p className="col-span-full text-xs text-muted-foreground">
+        Live from {activeChain.name} · chain {activeChain.id}
+      </p>
     </div>
   );
 }
