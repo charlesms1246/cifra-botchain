@@ -4,10 +4,11 @@
   "deployedAt": "2026-08-19T20:09:00.897Z",
   "deployer": "0xce4389ACb79463062c362fACB8CB04513fA3D8D8",
   "config": {
-    "scorerAddress": "0xce4389ACb79463062c362fACB8CB04513fA3D8D8",
+    "scorerAddress": "0xB6Af2B3F80087d9B6D4868C197Eb9412894049f0",
     "operator": "0xce4389ACb79463062c362fACB8CB04513fA3D8D8",
     "twapWindowSeconds": 1800,
-    "gracePeriodSeconds": 259200
+    "gracePeriodSeconds": 259200,
+    "attester": "0xce4389ACb79463062c362fACB8CB04513fA3D8D8"
   },
   "external": {
     "wrappedNative": "0xD5452816194a3784dBa983426cCe7c122F4abd30"

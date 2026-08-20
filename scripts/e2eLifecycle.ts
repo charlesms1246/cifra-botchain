@@ -37,7 +37,13 @@ const BPS = 10000n;
 const fmt = (v: bigint, d: number) => ethers.formatUnits(v, d);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-const SCORER_URL = process.env.SCORER_URL ?? "http://localhost:8099";
+const SCORER_URL = (process.env.SCORER_URL ?? "http://localhost:8099").replace(/\/$/, "");
+
+// A Cloud Run service deployed --no-allow-unauthenticated needs a Google identity token.
+// Get one with:  SCORER_AUTH_TOKEN=$(gcloud auth print-identity-token)
+const authHeaders: Record<string, string> = process.env.SCORER_AUTH_TOKEN
+    ? { Authorization: `Bearer ${process.env.SCORER_AUTH_TOKEN}` }
+    : {};
 
 type ScoreResponse = {
     resultData: string;
@@ -55,7 +61,7 @@ type ScoreResponse = {
 async function requestScore(invoiceId: string, tenorDays: number): Promise<ScoreResponse> {
     const res = await fetch(`${SCORER_URL}/score`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({
             invoiceId,
             input: {
@@ -121,8 +127,18 @@ async function main() {
     console.log(`sizing  ${fmt(DEPOSIT, dec)} per tranche, ${fmt(FACE, dec)} invoice face`);
     console.log(`actor   ${me.address} (supplier = funder = keeper = buyer)`);
 
-    const ver = await (await fetch(`${SCORER_URL}/version`)).json();
-    console.log(`scorer  ${SCORER_URL}  model ${ver.modelVersion}  signer ${ver.scorerAddress}`);
+    const verRes = await fetch(`${SCORER_URL}/version`, { headers: authHeaders });
+    if (!verRes.ok)
+        throw new Error(
+            `scorer /version returned ${verRes.status}. If it is a private Cloud Run service, set ` +
+                `SCORER_AUTH_TOKEN=$(gcloud auth print-identity-token).`
+        );
+    const ver = await verRes.json();
+    console.log(`scorer  ${SCORER_URL}`);
+    console.log(`        model ${ver.modelVersion}  chainId ${ver.chainId}  image ${String(ver.imageDigest || "(unpinned)").slice(0, 26)}…`);
+    console.log(`        signer ${ver.scorerAddress}`);
+    if (Number(ver.chainId) !== Number((await ethers.provider.getNetwork()).chainId))
+        throw new Error(`scorer signs for chainId ${ver.chainId}, but this network is ${(await ethers.provider.getNetwork()).chainId}`);
     const onChainScorer = await attestation.scorerAddress();
     if (onChainScorer.toLowerCase() !== String(ver.scorerAddress).toLowerCase())
         throw new Error(`scorer mismatch: service signs as ${ver.scorerAddress}, contract expects ${onChainScorer}`);
