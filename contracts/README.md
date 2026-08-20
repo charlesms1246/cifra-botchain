@@ -23,12 +23,11 @@ funded and repaid in the same token and nothing here ever converts between asset
 | `CifraNativeDepositHelper.sol` | One-transaction native BOT → WBOT → tranche, and back. Native book only. |
 | `CifraNavOracle.sol` | **Display only** — prices a volatile book's NAV via a BDEX V3 TWAP. Nothing economic reads it. Not deployed for the USDT book. |
 
-## Leftover from the Flare build
-
-| File | Status |
-|---|---|
-| `CifraJurisdictionOracle.sol` | ⚠️ **The last contract still importing `@flarenetwork`** (FDC Web2Json). Not deployed on BOT Chain. `claude-docs/PORTING_ANALYSIS.md` §6.1 recommends deleting it and folding the country→region map into the already-governance-set risk table; that call has not been made, and until it is the `@flarenetwork` dependency cannot be dropped. |
-| `examples/HelloWorld.sol` | Toolchain deploy smoke test. Safe to delete. |
+No Flare dependency remains. `CifraJurisdictionOracle` (FDC Web2Json) was deleted: the only
+thing it attested was which region a country is in, which is a static ISO fact that needs no
+attestation network. Jurisdiction risk is a governance-set table inside the scoring model, and
+the caller may still override the term via `Input.jurisdictionScoreBps` if an on-chain source
+ever exists.
 
 ## Conventions worth knowing before editing
 
