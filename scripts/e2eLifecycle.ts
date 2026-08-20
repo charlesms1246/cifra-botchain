@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { ethers, network } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
@@ -14,6 +15,14 @@ import * as path from "path";
 //   cd scorer && go build -o /tmp/scorer . && \
 //     SCORER_SIGNING_KEY=<deployer key> CHAIN_ID=968 PORT=8099 /tmp/scorer &
 //   SCORER_URL=http://localhost:8099 npx hardhat run scripts/e2eLifecycle.ts --network botchainTestnet
+//
+// Sizing and book are env-driven, so the same script proves the loop with 1 USDT or 1000:
+//   DEMO_BOOK=usdt DEMO_FACE=1 DEMO_DEPOSIT=0.5 npx hardhat run scripts/e2eLifecycle.ts --network botchain
+//
+//   DEMO_BOOK     bot (default) | usdt
+//   DEMO_FACE     invoice face value, in whole units of the book asset (default 0.5)
+//   DEMO_DEPOSIT  per-tranche deposit (default 0.6). Senior + junior must cover the advance,
+//                 which is face x (1 - discount) — so 2 x DEPOSIT >= ~0.94 x FACE.
 //
 // DISCLOSED SHORTCUTS (this is a smoke test, not a demo of separation of duties):
 //   * One key plays every role — supplier, funder, keeper, scorer and buyer. In production
@@ -67,7 +76,9 @@ async function requestScore(invoiceId: string, tenorDays: number): Promise<Score
 async function main() {
     const dep = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "deployments", `cifra-${network.name}.json`), "utf8"));
     const [me] = await ethers.getSigners();
-    const book = dep.books.bot;
+    const bookKey = (process.env.DEMO_BOOK ?? "bot").trim();
+    const book = dep.books[bookKey];
+    if (!book) throw new Error(`Unknown DEMO_BOOK "${bookKey}". Available: ${Object.keys(dep.books).join(", ")}`);
 
     const registry = await ethers.getContractAt("CifraInvoiceRegistry", dep.shared.CifraInvoiceRegistry);
     const attestation = await ethers.getContractAt("CifraAttestationNFT", dep.shared.CifraAttestationNFT);
@@ -75,27 +86,39 @@ async function main() {
     const senior = await ethers.getContractAt("CifraTrancheVault", book.seniorVault);
     const junior = await ethers.getContractAt("CifraTrancheVault", book.juniorVault);
     const settlement = await ethers.getContractAt("CifraSettlement", book.settlement);
-    const helper = await ethers.getContractAt("CifraNativeDepositHelper", book.nativeDepositHelper);
-    const wbot = new ethers.Contract(
+    // The native helper only exists on the wrapped-native book; a USDT demo approves directly.
+    const isNative = Boolean(book.nativeDepositHelper);
+    const helper = isNative ? await ethers.getContractAt("CifraNativeDepositHelper", book.nativeDepositHelper) : null;
+    const token = new ethers.Contract(
         book.asset,
         [
             "function deposit() payable",
             "function approve(address,uint256) returns (bool)",
             "function balanceOf(address) view returns (uint256)",
             "function decimals() view returns (uint8)",
+            "function symbol() view returns (string)",
         ],
         me
     );
-    const dec = Number(await wbot.decimals());
+    const dec = Number(await token.decimals());
+    const sym = await token.symbol();
 
-    const DEPOSIT = ethers.parseUnits("0.6", dec); // per tranche
-    const FACE = ethers.parseUnits("0.5", dec);
+    const DEPOSIT = ethers.parseUnits((process.env.DEMO_DEPOSIT ?? "0.6").trim(), dec); // per tranche
+    const FACE = ethers.parseUnits((process.env.DEMO_FACE ?? "0.5").trim(), dec);
+
+    // Fail before spending anything if the pool could never cover the advance.
+    if (DEPOSIT * 2n < (FACE * 9400n) / 10000n)
+        throw new Error(
+            `2 x DEMO_DEPOSIT (${fmt(DEPOSIT * 2n, dec)}) cannot cover the advance on a ` +
+                `${fmt(FACE, dec)} invoice (~${fmt((FACE * 9400n) / 10000n, dec)}). Raise DEMO_DEPOSIT.`
+        );
 
     const nav = async () => fmt(await controller.nav(), dec);
     const claims = async () =>
         `senior ${fmt(await controller.claimOf(book.seniorVault), dec)} / junior ${fmt(await controller.claimOf(book.juniorVault), dec)}`;
 
-    console.log(`network ${network.name}  book BOT (${book.asset})`);
+    console.log(`network ${network.name}  book ${bookKey.toUpperCase()} — ${sym} (${book.asset})`);
+    console.log(`sizing  ${fmt(DEPOSIT, dec)} per tranche, ${fmt(FACE, dec)} invoice face`);
     console.log(`actor   ${me.address} (supplier = funder = keeper = buyer)`);
 
     const ver = await (await fetch(`${SCORER_URL}/version`)).json();
@@ -107,13 +130,24 @@ async function main() {
 
     // ── 0. Capitalize both tranches ──────────────────────────────────────────
     console.log(`0. FUND THE BOOK`);
-    await (await helper.depositNative(book.seniorVault, me.address, { value: DEPOSIT })).wait();
-    await (await helper.depositNative(book.juniorVault, me.address, { value: DEPOSIT })).wait();
-    console.log(`   deposited ${fmt(DEPOSIT, dec)} BOT into each tranche via the native helper`);
+    if (isNative) {
+        await (await helper!.depositNative(book.seniorVault, me.address, { value: DEPOSIT })).wait();
+        await (await helper!.depositNative(book.juniorVault, me.address, { value: DEPOSIT })).wait();
+        console.log(`   deposited ${fmt(DEPOSIT, dec)} ${sym} into each tranche via the native helper`);
+        // Wrap what the "buyer" will later need to repay invoice A.
+        await (await token.deposit({ value: FACE })).wait();
+    } else {
+        for (const vault of [book.seniorVault, book.juniorVault]) {
+            await (await token.approve(vault, DEPOSIT)).wait();
+            const v = await ethers.getContractAt("CifraTrancheVault", vault);
+            await (await v.deposit(DEPOSIT, me.address)).wait();
+        }
+        console.log(`   deposited ${fmt(DEPOSIT, dec)} ${sym} into each tranche`);
+        const bal = await token.balanceOf(me.address);
+        if (bal < FACE)
+            throw new Error(`Need ${fmt(FACE, dec)} ${sym} left to pay the invoice; wallet holds ${fmt(bal, dec)}.`);
+    }
     console.log(`   NAV ${await nav()}   claims: ${await claims()}\n`);
-
-    // Wrap what the "buyer" will later need to repay invoice A.
-    await (await wbot.deposit({ value: FACE })).wait();
 
     // ── helper: register + attest + fund one invoice ──────────────────────────
     async function originate(label: string, dueDate: number) {
@@ -147,12 +181,12 @@ async function main() {
     console.log(`   NAV ${await nav()} (flat — funding moves capital, it does not create or destroy it)`);
     console.log(`   amountDue ${fmt(await settlement.amountDue(idA), dec)}  isDefaultable ${await settlement.isDefaultable(idA)}`);
 
-    await (await wbot.approve(book.settlement, FACE)).wait();
+    await (await token.approve(book.settlement, FACE)).wait();
     const payTx = await (await settlement.payInvoice(idA)).wait();
     console.log(`   payInvoice tx ${payTx!.hash}  gas ${payTx!.gasUsed}`);
     console.log(`   status ${(await registry.getInvoice(idA)).status} (3 = Settled)`);
     console.log(`   NAV ${await nav()}  (+${fmt(FACE - principalA, dec)} yield)   claims: ${await claims()}`);
-    console.log(`   settlement resting balance ${fmt(await wbot.balanceOf(book.settlement), dec)} (atomic — nothing held)\n`);
+    console.log(`   settlement resting balance ${fmt(await token.balanceOf(book.settlement), dec)} (atomic — nothing held)\n`);
 
     // ── 2. DEFAULT PATH ───────────────────────────────────────────────────────
     console.log(`2. DEFAULT PATH  (throwaway settlement with GRACE_PERIOD = 0 — see header)`);

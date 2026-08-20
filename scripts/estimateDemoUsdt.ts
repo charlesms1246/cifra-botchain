@@ -37,10 +37,10 @@ async function main() {
     const chainId = (await ethers.provider.getNetwork()).chainId;
     const scorer = ethers.Wallet.createRandom();
 
-    // Demo sizing: round numbers that read well on an explorer.
-    const SENIOR = u("100");
-    const JUNIOR = u("100");
-    const FACE = u("100");
+    // Sizing is env-driven so the true floor can be probed, not guessed.
+    const FACE = u((process.env.DEMO_FACE ?? "1").trim());
+    const SENIOR = u((process.env.DEMO_DEPOSIT ?? "0.5").trim());
+    const JUNIOR = SENIOR;
     const principal = (FACE * (BPS - DISCOUNT)) / BPS;
 
     const F = (n: string) => ethers.getContractFactory(n);
@@ -70,6 +70,7 @@ async function main() {
 
     const seeded = SENIOR + JUNIOR + FACE;
     console.log(`Demo plan: senior ${f(SENIOR)} + junior ${f(JUNIOR)} deposits, one ${f(FACE)} invoice settled, one defaulted.`);
+    if (SENIOR + JUNIOR < (FACE * 9400n) / 10000n) throw new Error("deposits cannot cover the advance");
     console.log(`Seeded across wallets: ${f(seeded)} USDT\n`);
 
     const originate = async (label: string, dueIn: number) => {
@@ -99,9 +100,23 @@ async function main() {
     console.log(`settle path  OK — NAV ${f(await c.nav())} (yield +${f(FACE - principal)})`);
 
     const b = await originate("DEMO-DEF", 60);
+    const seniorBefore = await c.claimOf(await s.getAddress());
+    const juniorBefore = await c.claimOf(await j.getAddress());
     await time.increaseTo(b.due + 3 * 24 * 3600 + 1);
     await settle.markDefault(b.id);
-    console.log(`default path OK — senior ${f(await c.claimOf(await s.getAddress()))} / junior ${f(await c.claimOf(await j.getAddress()))}`);
+    const seniorAfter = await c.claimOf(await s.getAddress());
+    const juniorAfter = await c.claimOf(await j.getAddress());
+
+    console.log(`default path OK`);
+    console.log(`  senior ${f(seniorBefore)} -> ${f(seniorAfter)}   junior ${f(juniorBefore)} -> ${f(juniorAfter)}`);
+    // The headline claim is "senior is protected". If junior is too thin to absorb the whole
+    // advance the loss overflows into senior, and the demo shows the opposite of the pitch.
+    console.log(
+        seniorAfter === seniorBefore
+            ? `  SUBORDINATION VISIBLE: junior absorbed the full ${f(principal)} loss, senior untouched.`
+            : `  (!) junior was too thin — ${f(seniorBefore - seniorAfter)} overflowed into senior. ` +
+                  `Raise the junior deposit to at least the advance (${f(principal)}) to demo "senior protected".`
+    );
 
     // Everything is recoverable: withdraw whatever idle liquidity remains.
     const shares = await s.balanceOf(funder.address);
@@ -115,8 +130,8 @@ async function main() {
         (await usdt.balanceOf(await c.getAddress()));
     console.log(`\nUSDT still held by the team afterwards: ${f(held)} of ${f(seeded)} seeded`);
     console.log(`(the remainder is idle in the pool / advanced to the supplier — all recoverable)`);
-    console.log(`\n=> FLOAT REQUIRED for this demo: ${f(seeded)} USDT`);
-    console.log(`=> Minimum viable (halve the numbers): ${f(seeded / 2n)} USDT`);
+    console.log(`\nUSDT still held by the team afterwards: ${f(held)} of ${f(seeded)} seeded`);
+    console.log(`\n=> FLOAT REQUIRED: ${f(seeded)} USDT`);
 }
 
 main().catch((e) => {

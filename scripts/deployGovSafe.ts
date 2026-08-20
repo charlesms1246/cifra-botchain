@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { ethers, network } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
