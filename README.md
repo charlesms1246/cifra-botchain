@@ -151,6 +151,9 @@ Deployed 2026-08-22. All contracts source-verified on
 [`scan.botchain.ai`](https://scan.botchain.ai). `deployments/cifra-botchain.json` is the source
 of truth; this table can drift.
 
+📄 **[docs/DEPLOYMENT_MAINNET.md](docs/DEPLOYMENT_MAINNET.md)** — every deployed address with its
+creation transaction hash and explorer link, in plain text.
+
 | Contract | Address |
 |---|---|
 | CifraInvoiceRegistry (shared) | [`0x55829829…`](https://scan.botchain.ai/address/0x558298297E714312D5670dBe4dbc15E1D240a811) |
