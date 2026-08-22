@@ -62,31 +62,6 @@ flowchart LR
 
 ---
 
-## Trust model — stated plainly
-
-This project was previously built on Flare, where scoring ran inside a hardware-attested TEE.
-**On BOT Chain it does not**, and the README says so rather than quietly keeping the old
-language. What is and isn't guaranteed:
-
-| Claim | Guaranteed? |
-|---|---|
-| The grade came from the key registered on-chain | ✅ verified by `ecrecover` in `CifraAttestationNFT` |
-| The grade is bound to exactly one invoice | ✅ the invoiceId is inside the signed payload |
-| A grade cannot be replayed onto another chain | ✅ chainId is inside the signed payload |
-| Raw buyer data never reaches the chain | ✅ only the grade is submitted |
-| Settlement and default are honest | ✅ **directly observable on-chain** — no oracle involved |
-| The published model produced the grade | ⚠️ **checkable, not proven** — see below |
-| The operator cannot read buyer data | ❌ **no.** The service receives it over TLS. |
-
-The scorer signs the **`modelVersion`** and the container **`imageDigest`** alongside the grade,
-and both are recorded on-chain. Anyone can pull that exact image, re-run it on the same inputs,
-and confirm the result — the model is a published weighted formula in integer arithmetic, so it
-is bit-for-bit reproducible. What that cannot prove is that the running container *was* that
-image; only hardware attestation can, and that gap is real.
-
-`CifraAttestationNFT.setScorerAddress()` is deliberately owner-settable, so moving to an
-attested signer later is a key rotation rather than a contract migration.
-
 ## What each piece does
 
 | Component | Role |
@@ -169,10 +144,9 @@ creation transaction hash and explorer link, in plain text.
 | USDT settlement | [`0xD5F5f7Db…`](https://scan.botchain.ai/address/0xD5F5f7DbcD8a51CBfF513749bC0Cc55fd5f10Bf2) |
 | **Governance Safe (2-of-3)** | [`0x73DFfa09…`](https://scan.botchain.ai/address/0x73DFfa09B08458F924bc26fd786fC6FDf481B4b8) |
 
-All six owner-bearing contracts are owned by the Safe; `scripts/verifyGov.ts` reports
-**all governance checks passed**. `GRACE_PERIOD` is **14 days** and immutable.
-The funder allowlist is deployed and bound into every vault but ships **open** —
-`setRestricted(true)` is a single governance call.
+`GRACE_PERIOD` is **14 days** and immutable. `scripts/verifyGov.ts` reports all governance
+checks passed against this set. What that check does and does not cover — and the state of the
+funder allowlist — is in [docs/HONEST_DISCLOSURES.md](docs/HONEST_DISCLOSURES.md).
 
 An earlier deployment on BOT Chain testnet (chain 968) remains live at
 `deployments/cifra-botchainTestnet.json`, with its own scoring service on chainId 968.
@@ -221,31 +195,14 @@ Full setup — the frontend, the scoring service, Cloud Run — is in **[SETUP.m
 
 ## Honest disclosures
 
-- **No hardware attestation.** Scoring runs on Cloud Run, not in a TEE. See *Trust model* above.
-  The signed `imageDigest` makes grades reproducible, not attested.
-- **The operator can read buyer data.** ECIES payload encryption is supported and keeps data out
-  of proxy logs, but it is defence in depth, not confidentiality against Cifra.
-- **Invoices in the demo are synthetic.** The tranching, settlement and default machinery is
-  live and unmocked; the receivables are not yet real. Onboarding a genuine receivable is the
-  next milestone, and the single most valuable thing this project can do.
-- **The live default demo uses a `GRACE_PERIOD = 0` settlement**, because production grace is 14
-  days and a live chain cannot time-travel. Identical logic, different constant; the script
-  deploys the throwaway settlement, repoints the controller for the default leg, and restores the
-  real settlement afterwards. The production settlements enforce the full 14 days.
-- **The 2-of-3 governance Safe is not multi-party security.** All three owner keys are currently
-  held by one person, on one machine. That delivers auditability and recoverability — no single
-  contract call can be made without two signatures — but it is not the independent-signer
-  guarantee a 2-of-3 normally implies. Replacing owners is a `swapOwner` call and needs no
-  contract change. There is also **no timelock**: a 2-of-3 can act immediately.
-- **Governance depends on `scripts/safeExec.ts`.** Chain 677 is absent from the public chain
-  registries, so Safe's official web app is not a usable fallback.
-- **No compliance layer operating yet** — no KYC/KYB provider, no assignment-of-receivable
-  instrument, no legal entity. The *mechanism* to restrict funders exists
-  (`CifraFunderRegistry`) but **ships open**, so deposits are permissionless until governance
-  switches it on. Senior and junior tranches sold to passive funders would, at production scale,
-  plausibly be securities. Full picture in
-  **[docs/REGULATORY_POSTURE.md](docs/REGULATORY_POSTURE.md)**.
-- **Contracts are unaudited** beyond internal review, and the governance Safe has no timelock.
+Everything true about Cifra that the demo does not show you — the trust model, what governance
+can and cannot do today, what is synthetic, and what is not audited — is documented in full:
+
+**→ [docs/HONEST_DISCLOSURES.md](docs/HONEST_DISCLOSURES.md)**
+
+It is a single page, nothing in it is softened, and it is linked here rather than summarised so
+there is one copy to keep current. The regulatory picture is its companion:
+[docs/REGULATORY_POSTURE.md](docs/REGULATORY_POSTURE.md).
 
 ## Roadmap
 
