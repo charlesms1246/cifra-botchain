@@ -108,7 +108,7 @@ function buildSlides(): React.ReactNode[] {
       </Badge>
       <h1 className="font-display text-5xl font-black leading-[0.9] tracking-tight text-white sm:text-7xl">
         PRIVATE INVOICE FACTORING,<br />
-        <span className="text-primary">SETTLED ON FLARE.</span>
+        <span className="text-primary">SETTLED ON BOT CHAIN.</span>
       </h1>
       <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-white/60">
         Suppliers turn unpaid invoices into BOT or USDT. The buyer&apos;s credit is scored <em className="text-white/90">off-chain against a
