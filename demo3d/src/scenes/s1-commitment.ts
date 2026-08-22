@@ -22,6 +22,9 @@
 
 import type { Scene3D, Shot, Caption } from "../engine";
 import { gridFloor } from "../voxel";
+import { board, boardPlane, cardHead, figureText } from "../board";
+import { PAPER, ACCENT_DEEP } from "../palette";
+import { addr, shortAddr } from "../deck-data";
 import { ACCENT } from "../palette";
 import { makeEnvironment, type EnvHandle } from "../env";
 import { makeInvoice, type InvoiceHandle, type LineItem } from "../cast/invoice";
@@ -73,6 +76,27 @@ export function s1Commitment(): Scene3D {
       supplier = makeFigure(root, "supplier");
       supplier.g.position.set(-0.7, 0, 1.7);
       supplier.face(0.55);
+
+      /* -- where the commitment lands -----------------------------------
+         The third beat says "that hash is what reaches the chain". Naming
+         the contract it reaches is the difference between a claim and a
+         thing a viewer can look up. Mechanism, not status, so an address
+         belongs on it.
+
+         Placed UPSTAGE-LEFT (negative z, x well left of the slab at 1.8)
+         per PLAN.md §4.4: every shot here pushes toward the page, so
+         anything on the camera side of it fills the frame at exactly the
+         beat that has to be read. Low, and outside the horizontal span the
+         C1 telephoto holds. */
+      const rb = board(680, 190, (c) => {
+        cardHead(c, 4, 46, "COMMITMENT RECORDED", ACCENT_DEEP, 21);
+        cardHead(c, 4, 96, "CIFRA INVOICE REGISTRY", PAPER, 26);
+        figureText(c, 4, 156, shortAddr(addr.registry).toUpperCase(), ACCENT, 30, "700");
+      });
+      const rp = boardPlane(rb, 2.5, 2.5 * 190 / 680, { renderOrder: 4 });
+      rp.position.set(-2.75, 0.78, -1.55);
+      rp.rotation.y = 0.30;
+      root.add(rp);
     },
 
     update(t) {

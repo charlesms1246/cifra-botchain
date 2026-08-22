@@ -31,7 +31,7 @@ import { board, boardPlane, cardHead, figureText } from "../board";
 import { css, INK, PAPER, ACCENT, ACCENT_DEEP, ACCENT_LIGHT, SUCCESS, WARNING, LOSS, STEEL, STEEL_DARK, STEEL_LIGHT } from "../palette";
 import { makeEnvironment, type EnvHandle } from "../env";
 import { makeFigure, type FigureHandle } from "../cast/figure";
-import { govSafe, govThreshold, govOwners, govHeld, govPending, shortAddr, graceDays } from "../deck-data";
+import { govSafe, govSafeTx, govThreshold, govOwners, govHeld, govPending, shortAddr, shortTx, graceDays } from "../deck-data";
 import { seg, eInOut, eOutBack, eOutCubic, ring, lerp, impactY } from "../craft";
 
 const LOOP = 34;
@@ -122,7 +122,18 @@ export function s6Governance(): Scene3D {
         cardHead(c, 4, 52, "GOVERNANCE SAFE", PAPER, 30);
         figureText(c, 4, 132, shortAddr(govSafe), ACCENT_LIGHT, 34, "700");
         cardHead(c, 4, 196, `${govThreshold} OF ${govOwners} · SAFE 1.4.1`, SUCCESS, 24);
-        cardHead(c, 4, 240, "KEYS ON THREE SEPARATE DEVICES", ACCENT_DEEP, 19);
+        /* The CONSEQUENCE of the threshold on the line above, which is what
+           the scene then spends ten seconds showing: one key turns and the
+           lever does not move. Phrased as verifyGov.ts phrases the same
+           assertion, so the plate and the gate that checks it agree.
+
+           This replaced "KEYS ON THREE SEPARATE DEVICES" — a claim about
+           custody rather than about the contract, unverifiable from chain,
+           and untrue on the day it was written, sitting directly under a
+           real Safe address. The first replacement restated the threshold
+           and simply said the line above twice; a plate that repeats itself
+           spends a line and buys nothing. */
+        cardHead(c, 4, 240, "NO SINGLE SIGNER CAN ACT", ACCENT_DEEP, 19);
       });
       const sp = boardPlane(sb, 3.4, 3.4 * 260 / 900, { renderOrder: 5 });
       sp.position.set(0, 1.20, 0.98);
@@ -152,13 +163,18 @@ export function s6Governance(): Scene3D {
       /* The parameter the lever changes. A real one: `setSeniorYieldShareBps`
          is the split S5 spends its first half proving, so moving it here is
          the same fact from the other side. */
-      paramBoard = board(760, 190, (c) => {
-        c.clearRect(0, 0, 760, 190);
+      /* 240 tall, not 190: the executed state adds the transaction hash on
+         its OWN line. Right-aligned onto the status line it sat dim and
+         orphaned at the far edge of the board, and at this camera distance
+         it was not legible at all — which for the one checkable thing in
+         the scene is the same as not printing it. */
+      paramBoard = board(760, 240, (c) => {
+        c.clearRect(0, 0, 760, 240);
         cardHead(c, 4, 46, "SETSENIORYIELDSHAREBPS", PAPER, 22);
         figureText(c, 4, 128, "5000", PAPER, 52, "700");
         cardHead(c, 4, 178, "ONE SIGNATURE — NOT EXECUTED", LOSS, 18);
       });
-      const pp = boardPlane(paramBoard, 2.6, 2.6 * 190 / 760, { renderOrder: 5 });
+      const pp = boardPlane(paramBoard, 2.6, 2.6 * 240 / 760, { renderOrder: 5 });
       pp.position.set(0, 3.86, 0.12);
       lever.add(pp);
 
@@ -198,7 +214,7 @@ export function s6Governance(): Scene3D {
       const span = (N + 1) * PW + N * GAP;
       const x0 = -span / 2 + PW / 2;
 
-      const ownerPlate = (label: string, owner: string, accent: number): THREE.Mesh => {
+      const ownerPlate = (label: string, address: string, owner: string, accent: number): THREE.Mesh => {
         const b = board(420, 250, (c) => {
           c.fillStyle = css(INK);
           c.fillRect(0, 0, 420, 250);
@@ -208,14 +224,18 @@ export function s6Governance(): Scene3D {
           c.fillStyle = css(accent);
           c.fillRect(0, 0, 420, 10);
           cardHead(c, 20, 62, label, PAPER, 19);
+          /* The address, under the name it belongs to. This plate says which
+             contract answers to what — mechanism, not status — so it is one
+             of the plates an address may go on. */
+          figureText(c, 20, 104, address, ACCENT_DEEP, 17, "400");
           cardHead(c, 20, 150, "OWNER", ACCENT_DEEP, 15);
           cardHead(c, 20, 188, owner, accent, 20);
         });
         return boardPlane(b, PW, PW * 250 / 420, { transparent: false, renderOrder: 5 });
       };
 
-      govHeld.forEach((label, i) => {
-        const pl = ownerPlate(label, "SAFE", SUCCESS);
+      govHeld.forEach((row, i) => {
+        const pl = ownerPlate(row.label, row.value, "SAFE", SUCCESS);
         pl.position.set(x0 + i * (PW + GAP), RACK_Y, RACK_Z);
         root.add(pl);
         heldPlates.push(pl);
@@ -229,7 +249,7 @@ export function s6Governance(): Scene3D {
       /* The seventh. Same size, same row, same weight — a plate shrunk into
          a footnote is the footnote version of the same dishonesty §7 rule 6
          is about. */
-      pendingPlate = ownerPlate(govPending, "DEPLOYER KEY", WARNING);
+      pendingPlate = ownerPlate(govPending.label, govPending.value, "DEPLOYER KEY", WARNING);
       pendingPlate.position.set(x0 + N * (PW + GAP), RACK_Y, RACK_Z);
       root.add(pendingPlate);
       pendingBolt = obox(root, 0.26, 0.26, 0.26, WARNING,
@@ -295,12 +315,19 @@ export function s6Governance(): Scene3D {
       if (nowFlipped !== flipped) {
         flipped = nowFlipped;
         paramBoard.redraw((c) => {
-          c.clearRect(0, 0, 760, 190);
+          c.clearRect(0, 0, 760, 240);
           cardHead(c, 4, 46, "SETSENIORYIELDSHAREBPS", PAPER, 22);
           figureText(c, 4, 128, flipped ? "6000" : "5000", flipped ? SUCCESS : PAPER, 52, "700");
           cardHead(c, 4, 178,
             flipped ? "TWO SIGNATURES — EXECUTED" : "ONE SIGNATURE — NOT EXECUTED",
             flipped ? SUCCESS : LOSS, 18);
+          /* The caption over this beat says a real Safe transaction was
+             executed on mainnet before the handover. It was — this hash,
+             two signatures, status 1, at block 20,532,427, with ownership
+             transferring thirty-odd blocks later. Printing it is what turns
+             that sentence from a claim into something a viewer can check.
+             The PARAMETER above is illustrative; the transaction is not. */
+          if (flipped) figureText(c, 4, 222, shortTx(govSafeTx), ACCENT, 22, "400");
         });
       }
 

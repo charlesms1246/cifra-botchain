@@ -24,11 +24,12 @@ import * as THREE from "three";
 import type { Scene3D, Shot, Caption } from "../engine";
 import { gridFloor, obox } from "../voxel";
 import { board, boardPlane, cardHead, figureText } from "../board";
-import { css, PAPER, ACCENT, ACCENT_LIGHT, SUCCESS, WARNING, LOSS, STEEL } from "../palette";
+import { css, PAPER, ACCENT, ACCENT_DEEP, ACCENT_LIGHT, SUCCESS, WARNING, LOSS, STEEL } from "../palette";
 import { makeEnvironment, type EnvHandle } from "../env";
 import { makeBasins, type BasinsHandle } from "../cast/basins";
 import { makeInvoice, type InvoiceHandle } from "../cast/invoice";
 import { makeFigure, type FigureHandle } from "../cast/figure";
+import { addr, shortAddr, navPriceUsd } from "../deck-data";
 import { makeHelper, type HelperHandle } from "../cast/helper";
 import { seg, eInOut, eOutBack, lerp, arc, impactY } from "../craft";
 
@@ -138,12 +139,12 @@ export function s4Vault(): Scene3D {
       /* The BOT book's plates hang LEFT, the USDT book's RIGHT — outward,
          away from the middle of the stage, because the middle of the stage
          is where the funders stand. */
-      bot = makeBasins(root, { book: "BOT", plateSide: -1 });
+      bot = makeBasins(root, { book: "BOT", plateSide: -1, controller: shortAddr(addr.botController).toUpperCase() });
       bot.g.position.set(BOT_X, 0, 0);
       bot.setLevel("senior", START);
       bot.setLevel("junior", START);
 
-      usdt = makeBasins(root, { book: "USDT" });
+      usdt = makeBasins(root, { book: "USDT", controller: shortAddr(addr.usdtController).toUpperCase() });
       usdt.g.position.set(USDT_X, 0, 0);
       // The USDT book is deployed and live, and it is NOT the book this
       // invoice is in. It simply stands there, untouched, for the whole
@@ -152,6 +153,45 @@ export function s4Vault(): Scene3D {
       usdt.setLevel("junior", 0.58);
 
       supplier = makeFigure(root, "supplier");
+      /* -- the NAV oracle, wired to nothing --------------------------------
+         The scene's closing beat is "no price oracle sits anywhere money
+         moves". Everything else on this stage is visibly plumbed: the helper
+         sits inline in the row, the gate stands across the path. This panel
+         has a post and nothing else — no pipe to either book, no line to the
+         settlement. The ABSENCE of a connector is the argument, which is why
+         there is deliberately no connecting geometry to draw.
+
+         Placement took three passes, all of them the same mistake in a
+         different direction: anything at tank height ends up reading as a
+         readout bolted to whichever rig it lands near, which is exactly the
+         wiring this panel exists to deny. At x 0 z -4.2 it sat behind the
+         BOT tank; moved outboard to x -10.6 it collided with that rig's
+         senior plate once the resolve widened.
+
+         So: centred between the two books and ABOVE both of them, far
+         upstage. The rigs top out near y 4.2 — at y 5.6 it clears them,
+         belongs to neither, and the empty air around it is the argument.
+
+         The post is a STUB under the panel, not a mast to the floor. A
+         full-height post ran down through the helper gantry and read as
+         plumbing into the one prop on this stage that genuinely is a money
+         path — the opposite of the point, arrived at while trying to make
+         the point. */
+      const navPost = obox(root, 0.16, 0.5, 0.16, STEEL, 0, 4.95, -6.0,
+        { outlineThickness: 0.055 });
+      void navPost;
+      const nb = board(680, 250, (c) => {
+        c.clearRect(0, 0, 680, 250);
+        cardHead(c, 4, 42, "NAV ORACLE · DISPLAY ONLY", WARNING, 22);
+        figureText(c, 4, 116, `BOT / USD  ${navPriceUsd}`, PAPER, 46, "700");
+        cardHead(c, 4, 168, "30-MIN TWAP FROM THE DEX POOL", PAPER, 17);
+        cardHead(c, 4, 206, "READ BY NO CONTRACT THAT MOVES MONEY", ACCENT, 17);
+        figureText(c, 676, 240, shortAddr(addr.navOracle).toUpperCase(), ACCENT_DEEP, 20, "400", "right");
+      });
+      const np = boardPlane(nb, 2.3, 2.3 * 250 / 680, { renderOrder: 4 });
+      np.position.set(0, 5.62, -5.92);
+      root.add(np);
+
       supplier.g.position.set(SUP_X, 0, 1.6);
       supplier.face(1.35);
 
@@ -221,9 +261,20 @@ export function s4Vault(): Scene3D {
           cardHead(c, 4, 58, "ALLOWLISTED", SUCCESS, 26);
         });
         gatePlateFig = boardPlane(lb, 1.7, 1.7 * 90 / 520, { renderOrder: 5 });
-        gatePlateFig.position.set(0, 2.62, -0.14);
         gatePlateFig.visible = false;
-        gateFunder.g.add(gatePlateFig);
+        /* Added to ROOT, not to the figure — the only plate in this scene
+           that is. The other two funders stand in open floor, so a plate
+           parented above their head lands against nothing. This one's row
+           mark is ROW[GATE_AT] x -5.0, and the BOT rig is at x -5.6: they
+           stand dead centre in front of it, so a head-height plate is
+           always against the tanks.
+
+           Parented, an offset to clear the rig would rotate with the figure
+           — and this figure turns through ninety degrees as it walks the
+           second leg. So the plate is positioned in WORLD space each frame
+           from wherever they are, which is what "a label belongs to the
+           camera, not to its owner" (PLAN.md §4.4) actually asks for. */
+        root.add(gatePlateFig);
       }
 
       barrier = new THREE.Group();
@@ -452,12 +503,43 @@ export function s4Vault(): Scene3D {
           cardHead(c, 4, 96, listed ? "ALLOWLISTED" : "RESTRICTED", listed ? SUCCESS : LOSS, 30);
         });
       }
-      /* Only once they have taken their place. During the walk it sat right
-         on the gate's own ALLOWLISTED plate — the same word twice, half a
+      /* Only once they have taken their place, and only until the deposit
+         beat is over.
+
+         The late bound is the half PLAN.md §4.4 warns about and this scene
+         had already been caught by twice: a prop whose beat is done must be
+         struck. It ran to S.reset, so from the advance onward the word
+         ALLOWLISTED hung over the BOT tanks with its owner cropped out of
+         the telephoto — reading as a label ON the tranche rather than on a
+         funder, in the two shots that belong to the advance and to the two
+         books.
+
+         The early bound is the other half: during the walk it sat right on
+         the gate's own ALLOWLISTED plate — the same word twice, half a
          metre apart, at the one moment the gate plate is the thing to read. */
-      gatePlateFig.visible = nowListed && t >= S.deposit - 0.7;
-      // same counter-rotation as the other two, but this one turns as it walks
-      gatePlateFig.rotation.y = -gateFunder.g.rotation.y;
+      gatePlateFig.visible = nowListed && t >= S.deposit - 0.7 && t < S.advanceOut;
+      /* World-space, so the offset that clears the BOT rig stays cleared
+         however the figure is turned — and this one turns through ninety
+         degrees on the second leg of its walk.
+
+         Offset LEFT, not right. The rig is BW 3.6 wide on posts, spanning
+         x -7.52 to -3.68 around BOT_X; the funder's mark is x -5.0, inside
+         that. A +1.9 offset looked clear on paper but the board is 1.7 wide
+         and its text is left-aligned, so the word still landed on the
+         junior fill. Going right far enough to clear it would have walked
+         the plate into the senior funder's own label at ROW[1].
+
+         Left of the rig is open dark floor all the way to the supplier at
+         SUP_X -15, and it is the side this funder walked in from. Held
+         downstage (+z) of the rig as well, so depth separates them even
+         where they overlap in screen space. */
+      gatePlateFig.position.set(
+        gateFunder.g.position.x - 2.1,
+        2.28,
+        gateFunder.g.position.z + 1.3,
+      );
+      // Square to camera, like the other two end up after their counter-rotation.
+      gatePlateFig.rotation.y = 0;
       const lift = eOutBack(seg(t, S.gateList, S.gateList + 0.7)) * (1 - goneBack);
       barrierArm.rotation.z = lift * 1.35;
       barrierArm.position.x = -lift * 0.95;
@@ -530,9 +612,23 @@ export function s4Vault(): Scene3D {
           fov: 32,
         };
       }
-      // ── CUT ── C3 — both books in one frame. Wide, and held: the point is
-      // that you can look for a connection between them and not find one.
-      const e = eInOut(seg(t, S.books, LOOP));
+      /* ── CUT ── C3 — both books in one frame. Wide, and HELD: the point is
+         that you can look for a connection between them and not find one,
+         which takes a moment of looking.
+
+         The move back to HOME is the loop closing — HOME is C0's gate
+         framing, and the last frame has to equal the first (§8). Running
+         that as one eleven-second drift from S.books meant the shot spent
+         its entire back half sliding away from the two books it had just
+         asked you to compare: by t 29 the USDT rig was cut in half at the
+         frame edge and the left two-thirds of frame was empty floor, under
+         the line "two books, they never touch".
+
+         So: hold the wide until RETURN, then close the loop over the last
+         six seconds. Same start, same end, same loop — the difference is
+         where the time is spent. */
+      const RETURN = S.books + 5.4;
+      const e = eInOut(seg(t, RETURN, LOOP));
       return {
         pos: [lerp(0.1, HOME.pos[0], e), lerp(5.7, HOME.pos[1], e), lerp(17.4, HOME.pos[2], e)],
         look: [lerp(0, HOME.look[0], e), lerp(2.3, HOME.look[1], e), lerp(0.6, GATE_Z, e)],
@@ -549,7 +645,7 @@ export function s4Vault(): Scene3D {
       if (t < S.gateList) return {
         title: "Deposits can be restricted.",
         sub: "Tranche shares are plausibly securities, so the vaults can gate who deposits and who holds shares.",
-        beat: "With the registry switched on, an unknown address is turned away. Mainnet ships with it open.",
+        beat: "Deposits are gated. Transfers are gated. Withdrawal never is.",
       };
       if (t < S.depositIn) return {
         title: "Funders provide the capital.",

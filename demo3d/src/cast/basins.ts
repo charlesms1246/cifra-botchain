@@ -45,6 +45,10 @@ export interface BasinsOpts {
   book?: string;
   /** Which side of the rig the tranche plates hang on. Default right (+1). */
   plateSide?: -1 | 1;
+  /** The controller this book's pool lives in, short form, for the plaque.
+   *  Names WHICH CONTRACT holds the pool — mechanism, so an address is
+   *  allowed here. Omit and the plaque just reads BOOK, as before. */
+  controller?: string;
 }
 
 function tank(
@@ -99,6 +103,7 @@ function plate(text: string, sub: string, accent: number): THREE.Mesh {
 export function makeBasins(parent: THREE.Object3D, opts: BasinsOpts = {}): BasinsHandle {
   const bookLabel = opts.book ?? "BOT";
   const ps = opts.plateSide ?? 1;
+  const controller = opts.controller;
   const g = new THREE.Group();
   parent.add(g);
 
@@ -150,13 +155,19 @@ export function makeBasins(parent: THREE.Object3D, opts: BasinsOpts = {}): Basin
      decoration. USDT is an ERC-20 on the same chain and gets plain type;
      giving it the chain mark would imply something untrue. */
   const isNative = bookLabel === "BOT";
-  const bb = board(460, 150, (c) => {
-    c.clearRect(0, 0, 460, 150);
+  /* 196 tall when a controller address is shown, 150 when not: the mark and
+     the wordmark both bottom out around y=118, which left 32px — not enough
+     for a legible line under them. Growing the board rather than shrinking
+     the type keeps the plaque readable at the crane distance. */
+  const bh = controller ? 196 : 150;
+  const bb = board(460, bh, (c) => {
+    c.clearRect(0, 0, 460, bh);
     cardHead(c, 4, 38, "BOOK", ACCENT_DEEP, 20);
     if (isNative) drawBotChain(c, 4, 58, 400);
     else figureText(c, 4, 118, bookLabel, PAPER, 62, "700");
+    if (controller) figureText(c, 4, 180, controller, ACCENT_DEEP, 26, "400");
   });
-  const bp = boardPlane(bb, 0.95, 0.95 * 150 / 460, { renderOrder: 4 });
+  const bp = boardPlane(bb, 0.95, 0.95 * bh / 460, { renderOrder: 4 });
   /* Low on the frame, like a plaque — NOT floating above the rig. Up there
      it drifted into the top-left caption block on any shot taken from the
      right of the stage, and a book identifier is not worth putting over the

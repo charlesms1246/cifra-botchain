@@ -35,6 +35,7 @@ import { css, INK, PAPER, ACCENT, SUCCESS, WARNING, LOSS, STEEL_DARK } from "../
 import { makeEnvironment, type EnvHandle } from "../env";
 import { makeRoom, type RoomHandle, TERMS } from "../cast/room";
 import { makeInvoice, type InvoiceHandle } from "../cast/invoice";
+import { scorerAddr, shortAddr, shortDigest } from "../deck-data";
 import { makeFigure, type FigureHandle } from "../cast/figure";
 import { seg, eInOut, eOutBack, eOutCubic, lerp, arc, impactY } from "../craft";
 
@@ -134,11 +135,19 @@ export function s2Grade(): Scene3D {
         figureText(c, 250, 132, "RISK   " + RISK_BPS + " BPS", PAPER, 26, "400");
         figureText(c, 250, 172, "DISC     " + DISCOUNT_BPS + " BPS", PAPER, 26, "400");
         rule(c, 30, 208, 560, SUCCESS, 0.3);
-        cardHead(c, 30, 262, "MODEL   CIFRA-SCORE-V1", PAPER, 19);
-        cardHead(c, 30, 302, "DIGEST  SHA256:4B9C…E017", PAPER, 19);
-        cardHead(c, 30, 342, "INVOICE 0X8F2C…41AB", PAPER, 19);
-        rule(c, 30, 366, 560, SUCCESS, 0.2);
-        cardHead(c, 30, 420, "NO BUYER DATA ON THIS CARD", ACCENT, 18);
+        cardHead(c, 30, 254, "MODEL   CIFRA-SCORE-V1", PAPER, 19);
+        /* Real digest, from deck-data — the same constant S3 prints, so the
+           two scenes cannot drift. The beat under this card is "a digest
+           proves what the model is"; an invented one proves nothing and is
+           the one thing on screen a reviewer would try to check first. */
+        cardHead(c, 30, 290, `DIGEST  ${shortDigest()}`, PAPER, 19);
+        /* The key the attestation contract verifies against. This card is
+           what a funder is handed, and the caption calls it "a signature
+           anyone can check" — so name the signer. */
+        cardHead(c, 30, 326, `SIGNER  ${shortAddr(scorerAddr).toUpperCase()}`, PAPER, 19);
+        cardHead(c, 30, 362, "INVOICE 0X8F2C…41AB", PAPER, 19);
+        rule(c, 30, 384, 560, SUCCESS, 0.2);
+        cardHead(c, 30, 428, "NO BUYER DATA ON THIS CARD", ACCENT, 18);
       });
       const cp = boardPlane(cb, 1.42, 1.42 * 460 / 620, { transparent: false, renderOrder: 5 });
       cp.position.set(0, 0, 0.075);

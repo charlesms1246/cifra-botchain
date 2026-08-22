@@ -26,6 +26,7 @@ import { css, INK, PAPER, ACCENT, SUCCESS, STEEL, STEEL_DARK, STEEL_LIGHT } from
 import { makeEnvironment, type EnvHandle } from "../env";
 import { makeInvoice, type InvoiceHandle } from "../cast/invoice";
 import { makeFigure, type FigureHandle } from "../cast/figure";
+import { addr, scorerAddr, shortAddr, shortDigest } from "../deck-data";
 import { seg, eInOut, eInCubic, eOutBack, ring, lerp, impactY } from "../craft";
 
 const LOOP = 18;
@@ -112,6 +113,11 @@ export function s3Attest(): Scene3D {
         cardHead(c, 26, 132, "ERC-721", PAPER, 22);
         cardHead(c, 26, 176, "BOUND TO", PAPER, 22);
         cardHead(c, 26, 220, "0X8F2C…41AB", PAPER, 22);
+        /* The contract that actually mints it. The scene's claim is that the
+           grade is bound on chain and checkable; naming the minting contract
+           is what makes that checkable rather than asserted. Mechanism, not
+           status, so an address belongs here. */
+        cardHead(c, 26, 276, shortAddr(addr.attestation).toUpperCase(), ACCENT, 19);
         cardHead(c, 26, 320, "CIFRA", ACCENT, 30);
       });
       const dp = boardPlane(db, 0.80, 0.80, { renderOrder: 5 });
@@ -140,13 +146,25 @@ export function s3Attest(): Scene3D {
           ["RISK", "6,842 BPS"],
           ["DISCOUNT", "800 BPS"],
           ["MODEL", "CIFRA-SCORE-V1"],
-          ["DIGEST", "SHA256:4B9C…E017"],
+          /* The REAL digest of the container that signed the mainnet grades,
+             from deck-data. The invented one that stood here undercut the
+             beat directly above it — "a signature anyone can check" is worth
+             nothing if the digest on screen checks against nothing. */
+          ["DIGEST", shortDigest()],
+          /* The caption over this plate says the grade is "signed by a key
+             anyone can check against the registry" — so the key goes on the
+             plate. The minting CONTRACT is on the die above; putting it here
+             too would be the same address twice and neither would earn its
+             line. */
+          ["SIGNER", shortAddr(scorerAddr).toUpperCase()],
         ];
-        let y = 132;
+        /* Six rows at the old 48px pitch put the last baseline 28px off the
+           board edge. Same failure PLAN.md §12 step 6 caught twice. */
+        let y = 126;
         for (const [k, v] of rows) {
           cardHead(c, 28, y, k, ACCENT, 18);
           figureText(c, 632, y, v, PAPER, 24, "700", "right");
-          y += 48;
+          y += 44;
         }
       });
       const ap = boardPlane(ab, 2.5, 2.5 * 400 / 660, { transparent: false, renderOrder: 5 });

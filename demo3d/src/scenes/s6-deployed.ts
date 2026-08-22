@@ -2,7 +2,7 @@
    ─────────────────────────────────────────────────────────────────────────
    Line: measured, not asserted.
 
-   Three panels land on a plate: what is deployed, what actually ran, and
+   Three panels land on a plate: what is deployed, what it recorded, and
    what is NOT true yet. The third is the same size and the same weight as
    the other two, it lands with the same impact, and the camera gives it the
    same time. §7 rule 6 — a caveat shrunk into a footnote is a caveat the
@@ -20,19 +20,19 @@
 import * as THREE from "three";
 import type { Scene3D, Shot, Caption } from "../engine";
 import { gridFloor, obox } from "../voxel";
-import { board, boardPlane, cardHead, figureText, rule, displayText, wrapHead } from "../board";
-import { css, INK, PAPER, ACCENT, ACCENT_DEEP, SUCCESS, WARNING, STEEL, STEEL_DARK } from "../palette";
+import { board, boardPlane, cardHead, figureText, rule, displayText } from "../board";
+import { css, INK, PAPER, ACCENT, ACCENT_DEEP, SUCCESS, STEEL, STEEL_DARK } from "../palette";
 import { makeEnvironment, type EnvHandle } from "../env";
 import { drawBotChain, drawCifraWordmark, drawCifraIcon } from "../assets";
 import {
   networkLabel, chainId, isMainnet, contracts, contractCount,
-  results, caveats, graceDays,
+  results, graceDays, contractIndex,
 } from "../deck-data";
 import { seg, eInOut, eOutBack, lerp, impactY } from "../craft";
 
 const LOOP = 24;
 
-/* The three panels land in this order, evenly spaced. The caveats land LAST
+/* The three panels land in this order, evenly spaced. The index lands LAST
    and land no softer — see the header. */
 const LAND = [2.4, 4.6, 6.8];
 const S = { crane: 8.4, hold: 12.0, resolve: 18.6 };
@@ -89,11 +89,13 @@ export function s7Deployed(): Scene3D {
         cardHead(c, x, 578, `GRACE ${graceDays} DAYS · IMMUTABLE`, ACCENT_DEEP, 14);
       });
 
-      /* -- 2 · WHAT RAN -------------------------------------------------
+      /* -- 2 · RECORDED ON CHAIN ----------------------------------------
          `ran` is printed under every figure. A testnet result must not be
          readable as a mainnet one just because the panel beside it says
-         mainnet. */
-      const p1 = panel("WHAT ACTUALLY RAN", ACCENT, (c, x, y0, w) => {
+         mainnet. The heading is the flattest available claim — these are
+         readings, and the panel beside them is the index you check them
+         against. */
+      const p1 = panel("RECORDED ON CHAIN", ACCENT, (c, x, y0, w) => {
         let y = y0 + 8;
         for (const r of results) {
           cardHead(c, x, y, r.label, ACCENT, 14);
@@ -103,22 +105,25 @@ export function s7Deployed(): Scene3D {
         }
       });
 
-      /* -- 3 · NOT TRUE YET ---------------------------------------------- */
-      const p2 = panel("WHAT IS NOT TRUE YET", WARNING, (c, x, y0, w) => {
-        let y = y0 + 14;
-        for (const line of caveats) {
-          // Wrapped with cardHead's OWN metrics (wrapHead), not measureText —
-          // a clipped caveat is worse than no caveat, and the first pass
-          // truncated "ONE PERSON" to "ON PERSON".
-          const lines = wrapHead(c, line, w - 30, 15);
-          c.fillStyle = css(WARNING);
-          c.fillRect(x, y - 12, 5, lines.length * 26 + 4);
-          for (const ln of lines) {
-            cardHead(c, x + 16, y, ln, PAPER, 15);
-            y += 26;
-          }
-          y += 26;
+      /* -- 3 · THE INDEX -------------------------------------------------
+         Every deployed address, so the two panels to the left are checkable
+         rather than merely stated: the contract set, what it recorded, and
+         where to go and read it back. Derived from the deployment record —
+         a redeploy moves these and no scene is edited.
+
+         This slot previously held the caveat panel. That material now lives
+         in docs/HONEST_DISCLOSURES.md, linked from the README. */
+      const p2 = panel("EVERY ADDRESS", ACCENT_DEEP, (c, x, y0, w) => {
+        /* 14 rows. At a 34px pitch the last one lands on 570 and the
+           footer sits at 578 — eight pixels apart, which is the overlap
+           class PLAN.md §12 step 6 already caught twice on this panel. */
+        let y = y0 + 6;
+        for (const r of contractIndex) {
+          cardHead(c, x, y, r.label, ACCENT, 13);
+          figureText(c, x + w, y, r.value, PAPER, 17, "400", "right");
+          y += 31;
         }
+        cardHead(c, x, 578, "SCAN.BOTCHAIN.AI", SUCCESS, 15);
       });
 
       const X = [-PW - 0.55, 0, PW + 0.55];
@@ -183,24 +188,35 @@ export function s7Deployed(): Scene3D {
           fov: 44,
         };
       }
-      // C2 — crane up and across as the caveats sit there. Same time for
-      // that panel as for the other two.
+      /* C2 — crane UP, and drift only slightly across.
+         The three panels span 14 world units (X = ±(PW + 0.55), each PW
+         wide), so the set runs from -7.0 to +7.0. The original move panned
+         to look.x 3.2 at z 13.4 with the fov NARROWING to 40, which put the
+         left panel's outer edge 10.2 units off-axis against a horizontal
+         half-width of about 8.9 — so it sat cut off the frame for the whole
+         second half of the scene, labels chopped, while the caption said
+         "every figure on the panels beside it can be read back".
+
+         The move now ends at look.x 1.2, z 14.4, fov 42: half-width 9.8
+         against a worst-case 8.2, which keeps all three in frame with room
+         to spare. The crane from y 4.6 to 5.6 still carries the shot — on
+         three panels of dense type, holding them beats panning off them. */
       if (t < S.resolve) {
         const p = eInOut(seg(t, S.crane, S.hold));
         const h = eInOut(seg(t, S.hold, S.resolve));
         return {
-          pos: [lerp(-0.4, 2.6, p) + h * 0.4, lerp(4.6, 5.6, p), lerp(14.6, 13.4, p) + h * 0.5],
-          look: [lerp(-1.2, 3.2, p), lerp(4.2, 4.4, p), 0],
-          fov: lerp(44, 40, p),
+          pos: [lerp(-0.4, 1.2, p) + h * 0.2, lerp(4.6, 5.6, p), lerp(14.6, 14.4, p) + h * 0.5],
+          look: [lerp(-1.2, 1.2, p), lerp(4.2, 4.4, p), 0],
+          fov: lerp(44, 42, p),
         };
       }
       // C3 — resolve to HOME, which is also the frame the cut returns to S0
       // on. Closes the loop exactly.
       const e = eInOut(seg(t, S.resolve, LOOP));
       return {
-        pos: [lerp(3.0, HOME.pos[0], e), lerp(5.6, HOME.pos[1], e), lerp(13.9, HOME.pos[2], e)],
-        look: [lerp(3.2, HOME.look[0], e), lerp(4.4, HOME.look[1], e), 0],
-        fov: lerp(40, HOME.fov, e),
+        pos: [lerp(1.4, HOME.pos[0], e), lerp(5.6, HOME.pos[1], e), lerp(14.9, HOME.pos[2], e)],
+        look: [lerp(1.2, HOME.look[0], e), lerp(4.4, HOME.look[1], e), 0],
+        fov: lerp(42, HOME.fov, e),
       };
     },
 
@@ -218,9 +234,9 @@ export function s7Deployed(): Scene3D {
         beat: "Every figure here came off a suite or a live transaction, and says which.",
       };
       if (t < S.resolve) return {
-        title: "Here is what is not true yet.",
-        sub: "The invoices are synthetic. We operate the scorer. It is unaudited. Three Safe keys sit with one person.",
-        beat: "It is on the plate because a reviewer who finds it themselves discounts everything else.",
+        title: "And every address is here.",
+        sub: "The full contract set, on the explorer, verified — so every figure on the panels beside it can be read back.",
+        beat: "Nothing on this plate has to be taken on trust.",
       };
       return {
         title: "Private credit. Public settlement.",

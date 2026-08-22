@@ -32,7 +32,7 @@ import { makeEnvironment, type EnvHandle } from "../env";
 import { makeBasins, type BasinsHandle } from "../cast/basins";
 import { makeInvoice, type InvoiceHandle } from "../cast/invoice";
 import { makeFigure, type FigureHandle } from "../cast/figure";
-import { juniorLeftAfterDefault } from "../deck-data";
+import { juniorLeftAfterDefault, addr, shortAddr, graceDays } from "../deck-data";
 import { seg, eInOut, eOutBack, eOutCubic, eInCubic, lerp, arc, impactY } from "../craft";
 
 const LOOP = 38;
@@ -199,12 +199,20 @@ export function s5Waterfall(): Scene3D {
       graceFill.position.set(gx - gw / 2, gy, 2.49);
       graceRig.add(graceFill);
 
-      graceBoard = board(720, 110, (c) => {
-        c.clearRect(0, 0, 720, 110);
-        cardHead(c, 4, 44, "DUE + 14 DAYS GRACE", WARNING, 26);
+      graceBoard = board(720, 152, (c) => {
+        c.clearRect(0, 0, 720, 152);
+        /* Derived, not typed. S6 already reads graceDays off the deployment
+           record; this plate said "14" as a literal, so the two would have
+           disagreed the moment the constant changed — and only one of them
+           would have been wrong on screen. */
+        cardHead(c, 4, 44, `DUE + ${graceDays} DAYS GRACE`, WARNING, 26);
         cardHead(c, 4, 92, "BLOCK.TIMESTAMP · ANYONE MAY CALL", PAPER, 18);
+        /* The contract that observes the payment and the deadline. The beat
+           here is "the settlement is the transaction" — this names which
+           transaction. Mechanism, not status. */
+        cardHead(c, 4, 134, `CIFRASETTLEMENT ${shortAddr(addr.botSettlement).toUpperCase()}`, ACCENT_DEEP, 17);
       });
-      graceLabel = boardPlane(graceBoard, 2.5, 2.5 * 110 / 720, { renderOrder: 5 });
+      graceLabel = boardPlane(graceBoard, 2.5, 2.5 * 152 / 720, { renderOrder: 5 });
       graceLabel.position.set(gx - 0.24, gy + 0.52, 2.49);
       graceRig.add(graceLabel);
       graceRig.visible = false;

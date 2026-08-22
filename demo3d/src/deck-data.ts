@@ -53,9 +53,63 @@ export const contracts: Row[] = [
   { label: "USDT CONTROLLER", value: shortAddr(b.usdt.controller) },
 ];
 
+/* ── addresses, for the scenes that name a mechanism ────────────────────
+   Editorial rule: an address goes on a plate that says WHICH CONTRACT DOES
+   THIS. It never goes on a plate asserting an operational status — an
+   address under "RESTRICTED" would imply that address is currently
+   restricted, which is a claim about state rather than about mechanism.
+
+   All of these are derived from the deployment record, so a redeploy moves
+   them and no scene needs editing. `shortAddr` is the display form; the full
+   value stays available for the S7 index. */
+
+export const addr = {
+  registry: deployment.shared.CifraInvoiceRegistry,
+  attestation: deployment.shared.CifraAttestationNFT,
+  funderRegistry: deployment.shared.CifraFunderRegistry,
+  botController: b.bot.controller,
+  botSenior: b.bot.seniorVault,
+  botJunior: b.bot.juniorVault,
+  botSettlement: b.bot.settlement,
+  navOracle: b.bot.navOracle,
+  helper: b.bot.nativeDepositHelper,
+  usdtController: b.usdt.controller,
+  usdtSenior: b.usdt.seniorVault,
+  usdtJunior: b.usdt.juniorVault,
+  usdtSettlement: b.usdt.settlement,
+} as const;
+
+/** The scoring key the attestation contract checks signatures against. */
+export const scorerAddr: string = deployment.config.scorerAddress;
+
+/* The container that signed the mainnet grades. NOT in any machine-readable
+   file — read from the mainnet scorer's /version on 2026-08-22 and confirmed
+   against the Cloud Run revision. S2 and S3 both display it, so it lives here
+   once: a digest typed into two scenes is a digest that drifts between them.
+   Re-read /version and update this if the service is redeployed. */
+export const imageDigest =
+  "sha256:6c25f142c0e0837213cfbb9d6e0bf45b9498aa7a07e0b98e357fb4828e79cbff";
+
+/** SHA256:6C25…CBFF — enough to check against the published image. */
+export const shortDigest = (d: string = imageDigest): string => {
+  const hex = d.includes(":") ? d.slice(d.indexOf(":") + 1) : d;
+  return `SHA256:${hex.slice(0, 4).toUpperCase()}…${hex.slice(-4).toUpperCase()}`;
+};
+
 export const contractCount =
   Object.keys(deployment.shared).length +
   Object.values(b).reduce((n, book) => n + Object.keys(book).length - 1, 0);
+
+/* The NAV oracle's reading, for S4's display-only panel. NOT derived — it is
+   a live TWAP and there is no build-time way to read one. Taken from the
+   mainnet oracle on 2026-08-22: `checkDeploy` printed mean tick 253588,
+   which through frontend/lib/price.ts is $9.71/BOT — within 1% of
+   CoinGecko's $9.61 and the explorer's own 9.7102 the same day.
+
+   It goes stale, and that is the point the panel makes: nothing economic
+   reads this number, so a stale or manipulated one is a wrong figure on a
+   dashboard rather than an exploit. Do not wire it to anything. */
+export const navPriceUsd = "9.71";
 
 export const graceDays = Math.round((deployment.config.gracePeriodSeconds ?? 0) / 86400);
 
@@ -89,18 +143,13 @@ export const results: Result[] = [
 export const juniorLeftAfterDefault = 0.096;
 
 /* ── what is not true yet ───────────────────────────────────────────────
-   PLAN.md §7 rule 6. These go on screen at the SAME size and weight as the
-   results, because a reviewer who finds one of them themselves discounts
-   every figure on the other panel. Sourced from SESSION_CLOSURE.md's
-   "Known-open, deliberately" list — if that list changes, change this. */
-
-export const caveats: string[] = [
-  "INVOICES ARE SYNTHETIC",
-  "WE OPERATE THE SCORER",
-  "UNAUDITED · NO TIMELOCK ON THE SAFE",
-  "THE FUNDER ALLOWLIST SHIPS OPEN",
-  "THE MAINNET DEFAULT RUN USED A GRACE=0 SETTLEMENT",
-];
+   The caveat list used to live here and render as S7's third panel. It now
+   lives in docs/HONEST_DISCLOSURES.md, linked from the README, and that file
+   is the single source — a second copy here would be a copy that drifts, and
+   the disclosure is the one thing that must not.
+   S2's caveat plate ("WE OPERATE THIS ROOM") is unaffected and stays: it is
+   bolted to the scoring room and it is the disclosure the thesis scene
+   depends on. */
 
 /* ── governance ─────────────────────────────────────────────────────────
    The Safe is not in deployment.json, so it is typed here from
@@ -110,14 +159,46 @@ export const caveats: string[] = [
 export const govSafe = "0x73DFfa09B08458F924bc26fd786fC6FDf481B4b8";
 export const govThreshold = 2;
 export const govOwners = 3;
-/** Contracts whose `owner()` is the Safe, verified on chain. */
-export const govHeld: string[] = [
-  "INVOICE REGISTRY",
-  "ATTESTATION NFT",
-  "BOT CONTROLLER",
-  "BOT SETTLEMENT",
-  "USDT CONTROLLER",
-  "USDT SETTLEMENT",
+/* The 2-of-3 execute path, proven on mainnet BEFORE ownership transferred:
+   two signatures gathered, status 1, at block 20,532,427. The transfers ran
+   at 20,532,460-470, so "executed before the handover" is checkable rather
+   than asserted. The parameter S6 shows changing is illustrative — this hash
+   is the real transaction the scene's caption refers to. */
+export const govSafeTx =
+  "0x541cbcd5bb8f8bdab65ce9dc621324168168c949f88cf74434626da6d6d7e1e7";
+
+/** 0x541cbcd5…d7e1e7 — a tx hash is longer than an address; trim harder. */
+export const shortTx = (h: string): string => `${h.slice(0, 10)}…${h.slice(-6)}`;
+
+/** Contracts whose `owner()` is the Safe, read back off chain 2026-08-22. */
+export const govHeld: Row[] = [
+  { label: "INVOICE REGISTRY", value: shortAddr(addr.registry) },
+  { label: "ATTESTATION NFT", value: shortAddr(addr.attestation) },
+  { label: "BOT CONTROLLER", value: shortAddr(addr.botController) },
+  { label: "BOT SETTLEMENT", value: shortAddr(addr.botSettlement) },
+  { label: "USDT CONTROLLER", value: shortAddr(addr.usdtController) },
+  { label: "USDT SETTLEMENT", value: shortAddr(addr.usdtSettlement) },
 ];
 /** And the one that is not. Reads its owner as the deployer key. */
-export const govPending = "FUNDER REGISTRY";
+export const govPending: Row = {
+  label: "FUNDER REGISTRY",
+  value: shortAddr(addr.funderRegistry),
+};
+
+/** Every deployed contract, for S7's index panel. Order follows the deck. */
+export const contractIndex: Row[] = [
+  { label: "INVOICE REGISTRY", value: shortAddr(addr.registry) },
+  { label: "FUNDER REGISTRY", value: shortAddr(addr.funderRegistry) },
+  { label: "ATTESTATION NFT", value: shortAddr(addr.attestation) },
+  { label: "BOT CONTROLLER", value: shortAddr(addr.botController) },
+  { label: "BOT SENIOR", value: shortAddr(addr.botSenior) },
+  { label: "BOT JUNIOR", value: shortAddr(addr.botJunior) },
+  { label: "BOT SETTLEMENT", value: shortAddr(addr.botSettlement) },
+  { label: "NAV ORACLE", value: shortAddr(addr.navOracle) },
+  { label: "DEPOSIT HELPER", value: shortAddr(addr.helper) },
+  { label: "USDT CONTROLLER", value: shortAddr(addr.usdtController) },
+  { label: "USDT SENIOR", value: shortAddr(addr.usdtSenior) },
+  { label: "USDT JUNIOR", value: shortAddr(addr.usdtJunior) },
+  { label: "USDT SETTLEMENT", value: shortAddr(addr.usdtSettlement) },
+  { label: "GOVERNANCE SAFE", value: shortAddr(govSafe) },
+];
