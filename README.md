@@ -145,22 +145,34 @@ it. zkTLS / web proofs are the trust-minimizing upgrade.
 
 ---
 
-## Live on BOT Chain testnet (chain 968)
+## Live on BOT Chain mainnet (chain 677)
 
-All contracts source-verified on [`scan.bohr.life`](https://scan.bohr.life).
-`deployments/cifra-botchainTestnet.json` is the source of truth; this table can drift.
+Deployed 2026-08-22. All contracts source-verified on
+[`scan.botchain.ai`](https://scan.botchain.ai). `deployments/cifra-botchain.json` is the source
+of truth; this table can drift.
 
 | Contract | Address |
 |---|---|
-| CifraInvoiceRegistry (shared) | [`0xD0aBd1Dc…`](https://scan.bohr.life/address/0xD0aBd1Dc433571b7F0bA243f0b56b3dE3610fd37) |
-| CifraAttestationNFT (shared) | [`0x16D6d433…`](https://scan.bohr.life/address/0x16D6d4335A01f75c252f86607a076700427Fea00) |
-| **BOT book** — controller | [`0x402FF5AA…`](https://scan.bohr.life/address/0x402FF5AA2735Dca465D9784AD7f3A43CCfa7deC2) |
-| BOT senior (cBOT-S) / junior (cBOT-J) | [`0xCa3b3D11…`](https://scan.bohr.life/address/0xCa3b3D111725E1b006FFB8924a88eBB171d6CCfD) / [`0x7BEBCFC4…`](https://scan.bohr.life/address/0x7BEBCFC47be110a0175452456267bFdaD45DdE8B) |
-| BOT settlement | [`0xD2947813…`](https://scan.bohr.life/address/0xD294781367B339D1E6950b4C0B02a67425D7247E) |
-| CifraNativeDepositHelper | [`0xF49941FA…`](https://scan.bohr.life/address/0xF49941FAe789D724e82102704DA0C359e96026ee) |
-| **USDT book** — controller | [`0xDAf65f32…`](https://scan.bohr.life/address/0xDAf65f322A2f750684283f91BC732479989b29fC) |
-| USDT senior (cUSDT-S) / junior (cUSDT-J) | [`0x944D4853…`](https://scan.bohr.life/address/0x944D4853eC49aDeda031655EBC837a3B0CbeFe56) / [`0x66f16F3C…`](https://scan.bohr.life/address/0x66f16F3CAd4f4b6cCace243FA5E075B97A7D7A75) |
-| USDT settlement | [`0x0C01c24B…`](https://scan.bohr.life/address/0x0C01c24B3E698FD5d8504A26b5517A1f02Da94f6) |
+| CifraInvoiceRegistry (shared) | [`0x55829829…`](https://scan.botchain.ai/address/0x558298297E714312D5670dBe4dbc15E1D240a811) |
+| CifraFunderRegistry (shared) | [`0x96A49787…`](https://scan.botchain.ai/address/0x96A4978752D0fC8FccDe3c168A6a9E1c20B62330) |
+| CifraAttestationNFT (shared) | [`0x7Bbfb48B…`](https://scan.botchain.ai/address/0x7Bbfb48BCEDF4B562fAB3cFdcb5974bf7cACd290) |
+| **BOT book** — controller | [`0x8302523b…`](https://scan.botchain.ai/address/0x8302523b9AbE6508388E669Cc6E452961747d90E) |
+| BOT senior (cBOT-S) / junior (cBOT-J) | [`0x9822650A…`](https://scan.botchain.ai/address/0x9822650A99bD33F29E383345F570dAE1e4E00928) / [`0xb27f6D44…`](https://scan.botchain.ai/address/0xb27f6D44036C38fE415906209aC1C5cfbd71adF9) |
+| BOT settlement | [`0x8AC436e5…`](https://scan.botchain.ai/address/0x8AC436e5BB681aE4d576e0131391aE3AACA88BDe) |
+| CifraNavOracle (display-only) | [`0xFcCF0117…`](https://scan.botchain.ai/address/0xFcCF01179c3e6AB33796a9D2804380D1C609b3bA) |
+| CifraNativeDepositHelper | [`0x53e11f0B…`](https://scan.botchain.ai/address/0x53e11f0BF461f87A8783c45B1880a5C6C1AEfC34) |
+| **USDT book** — controller | [`0x4ffa0A4F…`](https://scan.botchain.ai/address/0x4ffa0A4FBF242133C125fdF574e0FF3521173Cad) |
+| USDT senior (cUSDT-S) / junior (cUSDT-J) | [`0x00390B41…`](https://scan.botchain.ai/address/0x00390B4190E2F5D95a677FD7D300Ae03b876ca1C) / [`0x325998F4…`](https://scan.botchain.ai/address/0x325998F428BEb420C2931e33f5a5D0C669fdA82B) |
+| USDT settlement | [`0xD5F5f7Db…`](https://scan.botchain.ai/address/0xD5F5f7DbcD8a51CBfF513749bC0Cc55fd5f10Bf2) |
+| **Governance Safe (2-of-3)** | [`0x73DFfa09…`](https://scan.botchain.ai/address/0x73DFfa09B08458F924bc26fd786fC6FDf481B4b8) |
+
+All six owner-bearing contracts are owned by the Safe; `scripts/verifyGov.ts` reports
+**all governance checks passed**. `GRACE_PERIOD` is **14 days** and immutable.
+The funder allowlist is deployed and bound into every vault but ships **open** —
+`setRestricted(true)` is a single governance call.
+
+An earlier deployment on BOT Chain testnet (chain 968) remains live at
+`deployments/cifra-botchainTestnet.json`, with its own scoring service on chainId 968.
 
 External, per network (never shared across chains — the mainnet USDT address is a *different
 token* on testnet): see [`config/networks.ts`](config/networks.ts).
@@ -170,9 +182,13 @@ token* on testnet): see [`config/networks.ts`](config/networks.ts).
 `scripts/e2eLifecycle.ts` runs both paths against the deployed book, taking its grades from the
 real scoring service over HTTP:
 
+Both paths were run on **mainnet** on 2026-08-22, on both books:
+
 ```
-register → score → attest → fund → PAY       NAV 1.2 → 1.24, yield split 50/50
-register → score → attest → fund → DEFAULT   junior 0.62 → 0.15, senior untouched
+BOT book   register → score(B) → attest → fund → PAY       NAV 0.04 → 0.0416, yield split 50/50
+           register → score(A) → attest → fund → DEFAULT   junior 0.0208 → 0.002, senior untouched
+USDT book  register → score(B) → attest → fund → PAY       NAV 1.0  → 1.04,   yield split 50/50
+           register → score(A) → attest → fund → DEFAULT   junior 0.52 → 0.05, senior untouched
 ```
 
 The attest step is the cross-language check: a signature produced by Go has to be accepted by
@@ -209,10 +225,17 @@ Full setup — the frontend, the scoring service, Cloud Run — is in **[SETUP.m
 - **Invoices in the demo are synthetic.** The tranching, settlement and default machinery is
   live and unmocked; the receivables are not yet real. Onboarding a genuine receivable is the
   next milestone, and the single most valuable thing this project can do.
-- **The live default demo uses a `GRACE_PERIOD = 0` settlement**, because production grace is 3
+- **The live default demo uses a `GRACE_PERIOD = 0` settlement**, because production grace is 14
   days and a live chain cannot time-travel. Identical logic, different constant; the script
-  restores the real settlement afterwards.
-- **Testnet only so far.** Mainnet (677) deployment is pending.
+  deploys the throwaway settlement, repoints the controller for the default leg, and restores the
+  real settlement afterwards. The production settlements enforce the full 14 days.
+- **The 2-of-3 governance Safe is not multi-party security.** All three owner keys are currently
+  held by one person, on one machine. That delivers auditability and recoverability — no single
+  contract call can be made without two signatures — but it is not the independent-signer
+  guarantee a 2-of-3 normally implies. Replacing owners is a `swapOwner` call and needs no
+  contract change. There is also **no timelock**: a 2-of-3 can act immediately.
+- **Governance depends on `scripts/safeExec.ts`.** Chain 677 is absent from the public chain
+  registries, so Safe's official web app is not a usable fallback.
 - **No compliance layer operating yet** — no KYC/KYB provider, no assignment-of-receivable
   instrument, no legal entity. The *mechanism* to restrict funders exists
   (`CifraFunderRegistry`) but **ships open**, so deposits are permissionless until governance
@@ -223,8 +246,6 @@ Full setup — the frontend, the scoring service, Cloud Run — is in **[SETUP.m
 
 ## Roadmap
 
-- **Mainnet deployment** on BOT Chain 677 — the launch sequence is written down in
-  `claude-docs/MAINNET_RUNBOOK.md`.
 - **A real receivable** with a named counterparty, behind the debtor-approval flow.
 - **Debtor approval onramp** — the buyer acknowledges the invoice by email + OTP, which is the
   notice-of-assignment artifact real factoring turns on.

@@ -1,4 +1,4 @@
-import { ethers } from "hardhat";
+import { ethers, network } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -19,6 +19,15 @@ const SAFE_ABI = [
 
 const norm = (k: string) => (k.trim().startsWith("0x") ? k.trim() : "0x" + k.trim());
 
+// The Safe record is written per-network by deployGovSafe.ts, and read the same way by
+// transferOwnershipToGov.ts and verifyGov.ts. Reading a bare `cifra-gov-safe.json` here would
+// throw ENOENT — on mainnet that means the only tool that can drive the Safe cannot find it.
+function govRecord(): { safe: string } {
+    const file = path.join(__dirname, "..", "deployments", `cifra-gov-safe-${network.name}.json`);
+    if (!fs.existsSync(file)) throw new Error(`No governance Safe record at ${file} — run scripts/deployGovSafe.ts first.`);
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
 function ownerKeys(): string[] {
     // All candidate owner keys we hold (deployer + Acc1..Acc5); filtered to Safe owners below.
     const keys = [process.env.PRIVATE_KEY];
@@ -27,7 +36,7 @@ function ownerKeys(): string[] {
 }
 
 export async function execViaSafe(to: string, data: string, value: bigint = 0n): Promise<string> {
-    const gov = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "deployments", "cifra-gov-safe.json"), "utf8"));
+    const gov = govRecord();
     const [sender] = await ethers.getSigners();
     const safe = new ethers.Contract(gov.safe, SAFE_ABI, sender);
 
@@ -63,7 +72,7 @@ export async function execViaSafe(to: string, data: string, value: bigint = 0n):
 }
 
 async function main() {
-    const gov = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "deployments", "cifra-gov-safe.json"), "utf8"));
+    const gov = govRecord();
     const to = process.env.SAFE_TO ?? gov.safe; // default no-op target: the Safe itself
     const data = process.env.SAFE_DATA ?? "0x"; // 0-value, empty calldata = harmless self-test
     console.log(`Executing via Safe ${gov.safe}: to=${to} data=${data.slice(0, 20)}${data.length > 20 ? "…" : ""}`);

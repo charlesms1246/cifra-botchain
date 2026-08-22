@@ -1,38 +1,40 @@
 {
-  "network": "botchainTestnet",
-  "chainId": 968,
-  "deployedAt": "2026-08-20T19:46:11.840Z",
+  "network": "botchain",
+  "chainId": 677,
+  "deployedAt": "2026-08-22T07:10:25.055Z",
   "deployer": "0xce4389ACb79463062c362fACB8CB04513fA3D8D8",
   "config": {
     "scorerAddress": "0xB6Af2B3F80087d9B6D4868C197Eb9412894049f0",
     "operator": "0xce4389ACb79463062c362fACB8CB04513fA3D8D8",
     "twapWindowSeconds": 1800,
     "gracePeriodSeconds": 1209600,
-    "fundersRestricted": false
+    "fundersRestricted": false,
+    "attester": "0xce4389ACb79463062c362fACB8CB04513fA3D8D8"
   },
   "external": {
     "wrappedNative": "0xD5452816194a3784dBa983426cCe7c122F4abd30"
   },
   "shared": {
-    "CifraInvoiceRegistry": "0xEBD8aE503FA18f6F0b004B724b46D5804D153c4a",
-    "CifraAttestationNFT": "0x112a0f92C5A5e993b05E8ed1DFb2d2EC9338BB44",
-    "CifraFunderRegistry": "0xdc5c7371286fa8528F081714854658C56294b9A3"
+    "CifraInvoiceRegistry": "0x558298297E714312D5670dBe4dbc15E1D240a811",
+    "CifraAttestationNFT": "0x7Bbfb48BCEDF4B562fAB3cFdcb5974bf7cACd290",
+    "CifraFunderRegistry": "0x96A4978752D0fC8FccDe3c168A6a9E1c20B62330"
   },
   "books": {
     "bot": {
       "asset": "0xD5452816194a3784dBa983426cCe7c122F4abd30",
-      "controller": "0x4b9Bc77b2471663F8e5edDa185cb9e191E5207A4",
-      "seniorVault": "0x880e21C2cE69CBfc247116F76daF38445C374356",
-      "juniorVault": "0xaee1abdb37CBcd8A6168c18A18c43a2923e9e6Aa",
-      "settlement": "0x5918148853CF469bbfb520c17174E837efF8eAa2",
-      "nativeDepositHelper": "0xCf678f8f8614d45c656c71ff2F60195c0F4d8443"
+      "controller": "0x8302523b9AbE6508388E669Cc6E452961747d90E",
+      "seniorVault": "0x9822650A99bD33F29E383345F570dAE1e4E00928",
+      "juniorVault": "0xb27f6D44036C38fE415906209aC1C5cfbd71adF9",
+      "settlement": "0x8AC436e5BB681aE4d576e0131391aE3AACA88BDe",
+      "navOracle": "0xFcCF01179c3e6AB33796a9D2804380D1C609b3bA",
+      "nativeDepositHelper": "0x53e11f0BF461f87A8783c45B1880a5C6C1AEfC34"
     },
     "usdt": {
-      "asset": "0xa00D072A5A060f48Aa2aF79700a1FaA4140141c6",
-      "controller": "0x01c34d195EFFA0E8f830e193883a99fa93068559",
-      "seniorVault": "0x018AF823387C62d68D48e8f4AD3a1Ff7Ef593258",
-      "juniorVault": "0x5fAA82FB4544FDD23BEB3F485deC8958850f1C62",
-      "settlement": "0x2C5CaeEDe0c9189696edf197f3E72E19d9d24394"
+      "asset": "0xaBabc7Ddc03e501d190C676BF3d92ef0e6e87a3C",
+      "controller": "0x4ffa0A4FBF242133C125fdF574e0FF3521173Cad",
+      "seniorVault": "0x00390B4190E2F5D95a677FD7D300Ae03b876ca1C",
+      "juniorVault": "0x325998F428BEb420C2931e33f5a5D0C669fdA82B",
+      "settlement": "0xD5F5f7DbcD8a51CBfF513749bC0Cc55fd5f10Bf2"
     }
   }
 }
