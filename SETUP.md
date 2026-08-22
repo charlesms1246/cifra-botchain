@@ -1,6 +1,7 @@
 # Cifra — Clone & Run
 
-Everything you need to clone the repo and run any layer — from just the web app (zero config) to the full TEE round-trip.
+Everything you need to clone the repo and run any layer — contracts, the scoring service, and
+the live end-to-end flow.
 
 ```bash
 git clone git@github.com:charlesms1246/Cifra.git
@@ -9,19 +10,38 @@ cd Cifra
 
 ---
 
-## 1. The web app (easiest — no keys, no config)
+## 1. The web app
 
-The frontend is a Next.js app that reads **live** Coston2 data and submits XRPL payments client-side. It needs **no environment variables**.
+A Next.js app pointed at BOT Chain, reading live on-chain data. It needs no environment
+variables to run.
 
 ```bash
 cd frontend
-npm install
-npm run dev            # → http://localhost:3000
+npm install --legacy-peer-deps    # see the Privy note below
+npm run dev                        # → http://localhost:3000
 ```
 
-You'll get the landing page, the funder dashboard (live FTSO-priced NAV + real FXRP deposit), the invoice marketplace (live on-chain invoices), the XRPL-native onboarding flow, and the `/pitch` deck. To transact you need a browser wallet (e.g. MetaMask) on **Coston2** with a little **C2FLR** gas — get it from the [faucet](https://faucet.flare.network/coston2).
+You get the landing page, the funder vault (both books, with native-BOT deposits), the invoice
+marketplace, an invoice detail view with pay/default, and the factoring form.
 
-**Deploy to Vercel:** import the repo, set **Root Directory = `frontend`**, leave env vars empty, deploy.
+Addresses come from `frontend/lib/deployment.json`, a copy of `deployments/cifra-<network>.json`
+written by the deploy script. Re-sync it after any deploy:
+
+```bash
+NETWORK=botchainTestnet npx ts-node scripts/syncFrontendDeployment.ts
+```
+
+**Wallets.** Injected wallets work with no configuration. Privy is optional — set
+`NEXT_PUBLIC_PRIVY_APP_ID` to enable email/social login and embedded wallets. Without it the app
+still builds and runs on injected wallets alone.
+
+⚠️ `@privy-io/wagmi` pins `viem` to an exact version and its optional `permissionless`/`ox`
+sub-tree conflicts, so frontend installs need `--legacy-peer-deps`. `package.json` carries a
+matching `viem` pin and an `overrides` entry.
+
+**Deploy to Vercel:** import the repo, set **Root Directory = `frontend`**, and deploy. No
+environment variables are required (add `NEXT_PUBLIC_PRIVY_APP_ID` if you want Privy). Vercel
+only sees `frontend/`, which is why the deployment record is copied into `lib/`.
 
 ---
 
@@ -32,88 +52,118 @@ You'll get the landing page, the funder dashboard (live FTSO-priced NAV + real F
 ```bash
 # from the repo root
 npm install
-cp .env.example .env         # set PRIVATE_KEY (a funded Coston2 key)
-npx hardhat test             # unit tests: registry, attestation binding, tranche waterfall, settlement + reserve, oracles
-
-# deploy the full product layer to Coston2 (resolves FXRP + FdcVerification + FtsoV2 on-chain):
-FLARE_RPC_API_KEY="" npx hardhat run scripts/deployCifra.ts --network coston2
+cp .env.example .env         # set PRIVATE_KEY
+npx hardhat test             # registry, attestation, waterfall, settlement, oracle, helper
+FORK=1 npx hardhat test test/fork/MainnetFork.test.ts   # against real mainnet state
 ```
 
-> Run deploy/verify/settle scripts with `FLARE_RPC_API_KEY=""` — the tracer endpoint wants a key the public RPC doesn't.
+Get testnet gas from [`faucet.botchain.ai/basic`](https://faucet.botchain.ai/basic) — 10 tBOT
+per address per 24h, which is far more than a full deploy needs (~0.25 BOT).
 
-The FDC scripts (settlement, default, Web2Json) additionally need these in `.env`:
+Deploy both books (native BOT + USDT) and verify the wiring on-chain:
 
+```bash
+npx hardhat run scripts/deployCifra.ts --network botchainTestnet
+npx hardhat run scripts/checkDeploy.ts --network botchainTestnet
 ```
-VERIFIER_URL_TESTNET=...
-VERIFIER_API_KEY_TESTNET=...
-COSTON2_DA_LAYER_URL=...
+
+`deployCifra.ts` deploys a **shared** registry + attestation NFT, then one
+controller / senior / junior / settlement set per asset. Addresses land in
+`deployments/cifra-<network>.json`, which is the source of truth everywhere else.
+
+| Env var | Effect |
+|---|---|
+| `CIFRA_SCORER_ADDRESS` | the scoring service's signing key (default: deployer, changeable later) |
+| `CIFRA_OPERATOR` | the keeper permitted to call `fundInvoice` (default: deployer) |
+| `CIFRA_BOOKS` | subset to deploy, e.g. `usdt` (default: `bot,usdt`) |
+| `CIFRA_GRACE_DAYS` | days past due before an invoice can be defaulted (default: 3) |
+| `VERIFY=false` | skip Blockscout source verification |
+
+> **Never share addresses across networks.** The mainnet USDT address resolves to a *different
+> token* (`WES`) on testnet — it has code and answers ERC-20 calls, so it would transact
+> silently. Everything external is resolved per chain id through
+> [`config/networks.ts`](config/networks.ts).
+
+---
+
+## 3. The scoring service
+
+Go, stateless, runs on Cloud Run. Full detail in [`scorer/README.md`](scorer/README.md).
+
+```bash
+cd scorer
+go test ./...
+go build -o /tmp/scorer .
+
+SCORER_SIGNING_KEY=<hex key, no 0x> CHAIN_ID=968 PORT=8099 /tmp/scorer
+curl -s localhost:8099/version | jq
+```
+
+The address at `/version` **must equal `CifraAttestationNFT.scorerAddress()`** or every
+`attest()` reverts with `BadScorerSignature`. For local runs, use the deployer key (which is the
+default scorer). In production:
+
+```bash
+PROJECT=my-gcp-project REGION=europe-west1 CHAIN_ID=968 ./deploy-cloudrun.sh
+# then, as the contract owner:
+#   attestation.setScorerAddress(<scorerAddress from /version>)
 ```
 
 ---
 
-## 3. The TEE extension (the confidential-compute core)
+## 4. The live end-to-end flow
 
-**Prerequisites:** Docker (Desktop), Go 1.22+, an [ngrok](https://ngrok.com) account (to expose the enclave proxy to Flare's data-provider network). The extension lives in `tee-extension/` (Go).
-
-Bring the stack up and register + promote a TEE machine on Coston2:
+With a deployed book and the scorer running:
 
 ```bash
-cd tee-extension
-
-# 1. register the extension + InstructionSender on-chain
-CHAIN_URL="https://coston2-api.flare.network/ext/C/rpc" bash scripts/pre-build.sh --force
-
-# 2. build + start the enclave, proxy, and redis (Docker), exposed via ngrok
-set -a && source config/extension.env && set +a
-bash scripts/start-services.sh --chain coston2
-
-# 3. register + promote the TEE machine to PRODUCTION
-CHAIN_URL="https://coston2-api.flare.network/ext/C/rpc" bash scripts/post-build.sh
+SCORER_URL=http://localhost:8099 \
+  npx hardhat run scripts/e2eLifecycle.ts --network botchainTestnet
 ```
 
-Then score an invoice **immediately** (the score-forwarding window opens right after a fresh promotion). This one command shows both v2 stages — jurisdiction from an on-chain Web2Json oracle, and the private-input provenance commitment the enclave verifies before signing:
+That runs both paths — `register → score → attest → fund → pay` and
+`register → score → attest → fund → default` — taking grades from the real service over HTTP.
+The attest step is the cross-language check: a Go signature has to survive Solidity's
+`ecrecover`.
 
-```bash
-set -a && source .env && set +a && cd go/tools
-INVOICE_ID=<0x…> JURISDICTION_ORACLE=<oracle addr> JURISDICTION_CODE=US \
-  go run ./cmd/run-test -mode score \
-  -a ../../config/coston2/deployed-addresses.json \
-  -c https://coston2-api.flare.network/ext/C/rpc \
-  -instructionSender <new InstructionSender from config/extension.env> \
-  -p https://<your-ngrok-domain>
-```
+Two disclosed shortcuts, both printed by the script:
+- one key plays supplier, funder, keeper and buyer;
+- the default leg temporarily repoints the controller at a throwaway
+  `CifraSettlement(grace = 0)`, because production grace is 3 days and a live chain cannot
+  time-travel. Same logic, different constant; the real settlement is restored afterwards.
 
-**Keeping it up:** the enclave runs on a machine you control (Docker + ngrok) — it is *not* part of the Vercel deployment, and the web app reads its results only through the chain. Prevent your machine from sleeping (`caffeinate -dimsu` on macOS), keep Docker + ngrok alive, and re-run the `pre-build --force → start-services → post-build` cycle right before any live scoring.
-
----
-
-## 4. The live end-to-end flow (scripts)
-
-Once the TEE stack is up and an invoice is scored, the on-chain steps are ordinary scripts:
-
-```bash
-FLARE_RPC_API_KEY="" npx hardhat run scripts/<name>.ts --network coston2
-```
+### Other scripts
 
 | Script | What it does |
 |---|---|
-| `directMint.ts` | 10 XRP → FAssets Core Vault → real FXRP minted |
-| `registerViaSmartAccount.ts` | XRPL-native onboarding: register an invoice from a single XRPL payment (no EVM wallet) |
-| `executeOnboard.ts` | operator executor for a browser-originated onboarding (FDC + `executeDirectMinting`) |
-| `depositTranches.ts` | seed the senior + junior tranches with FXRP |
-| `realSettlePrep.ts` → `realSettle.ts` | register → attest (real TEE grade) → fund → XRPL pay → FDC `Payment` → settle (50/50 split) |
-| `defaultPrep.ts` → `defaultSettle.ts` | fund → FDC `ReferencedPaymentNonexistence` → `markDefault` (junior first-loss) |
-| `deployGovSafe.ts` → `transferOwnershipToGov.ts` → `verifyGov.ts` | 2-of-3 Safe governance + ownership transfer |
-| `safeExec.ts` | execute an owner-gated call through the 2-of-3 Safe |
-| `attestPaymentProvenance.ts` | anchor a payment-history provenance commitment on-chain via FDC `Web2Json` |
+| `deployCifra.ts` | deploy both books + shared layer, verify source |
+| `checkDeploy.ts` | 47 on-chain assertions against the deployment record |
+| `e2eLifecycle.ts` | the full lifecycle, both paths, live |
+| `depositTranches.ts` | seed senior + junior |
+| `seedFundable.ts` / `registerOne.ts` / `listUnscored.ts` | invoice fixtures and inspection |
+| `checkGasModel.ts` | proves viem's default fee path works on this chain |
+| `deployGovSafe.ts` → `setRoles.ts` → `transferOwnershipToGov.ts` → `verifyGov.ts` | governance handover, **in that order** |
+| `safeExec.ts` | execute an owner-gated call through the Safe |
+
+> **Order matters in the governance sequence.** `setRoles.ts` writes owner-gated setters, so it
+> must run while the deployer still owns the contracts. After `transferOwnershipToGov.ts` every
+> role change becomes a multi-sig proposal instead of a transaction.
+
+> Safe is deployed on BOT Chain **mainnet** (1.3.0 and 1.4.1) but **not on testnet**, so the
+> governance scripts only work against 677 unless you deploy Safe to 968 yourself.
 
 ---
 
 ## Networks
 
-| | |
-|---|---|
-| Chain ID | 114 (Coston2) |
-| RPC | `https://coston2-api.flare.network/ext/C/rpc` |
-| Explorer | https://coston2-explorer.flare.network |
-| Faucet | https://faucet.flare.network/coston2 (C2FLR, FXRP) |
+| | Mainnet | Testnet |
+|---|---|---|
+| Chain ID | 677 | 968 |
+| RPC | `https://rpc.botchain.ai` | `https://rpc.bohr.life` |
+| Explorer | https://scan.botchain.ai | https://scan.bohr.life |
+| Faucet | — | https://faucet.botchain.ai/basic (10 tBOT / 24h) |
+| Gas | fixed 20 gwei | fixed 20 gwei |
+| Block time | ~0.67 s | ~0.66 s |
+
+Both are Blockscout, so `hardhat verify` works with any non-empty API key.
+**Multicall3 is not deployed on testnet** — frontend chain definitions must omit it there or
+batched reads will fail.
