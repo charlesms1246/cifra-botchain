@@ -1,0 +1,23 @@
+{
+  "name": "cifra-demo3d",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Cifra demo-video 3D deck. Not shipped — rendered to a video. See PLAN.md.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "still": "node capture/still.mjs"
+  },
+  "dependencies": {
+    "three": "^0.182.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.182.0",
+    "playwright": "^1.50.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}
