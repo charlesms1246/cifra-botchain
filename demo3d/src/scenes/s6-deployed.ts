@@ -223,7 +223,11 @@ export function s7Deployed(): Scene3D {
     caption(t): Caption {
       if (t < LAND[2]) return {
         title: "Every contract is deployed and source-verified.",
-        sub: `${contractCount} contracts, two books, on ${networkLabel.toLowerCase()}.`,
+        /* `networkLabel.toLowerCase()` rendered the brand as "bot chain mainnet", and the
+           beat directly beneath already says "Live on BOT Chain mainnet". Dropping the network
+           from the subtitle fixes both: the beat is the spoken line, so the network belongs
+           there, and it still branches on isMainnet rather than being typed. */
+        sub: `${contractCount} contracts, two books, one deployment.`,
         beat: isMainnet
           ? "Live on BOT Chain mainnet, chain 677."
           : "Live on BOT Chain testnet, chain 968 — mainnet is a deploy, not a rewrite.",

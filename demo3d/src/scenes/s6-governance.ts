@@ -445,8 +445,12 @@ export function s6Governance(): Scene3D {
 
     caption(t): Caption {
       if (t < S.denied) return {
-        title: "Nothing here is owned by one key.",
-        sub: `A ${govThreshold}-of-${govOwners} Safe owns the protocol. Every parameter change is a multisig transaction.`,
+        /* "Nothing here is owned by one key" was false, and this scene is the thing that
+           proves it false nineteen seconds later: the funder registry still reads the deployer
+           key. Opening on the mechanism instead of a universal claim turns the pending plate
+           from a retraction into the completion of a sentence this line starts. */
+        title: `The protocol answers to a ${govThreshold}-of-${govOwners} Safe.`,
+        sub: `Six of its seven owner-bearing contracts read that Safe as their owner. Every parameter change is a multisig transaction.`,
         beat: "One signer turns their key.",
       };
       if (t < S.key2At) return {
@@ -456,7 +460,11 @@ export function s6Governance(): Scene3D {
       };
       if (t < S.rack) return {
         title: "Two, and it moves.",
-        sub: "The senior share of the yield — the split the waterfall runs on — changed by governance, not by a key.",
+        /* seniorYieldShareBps is still 5000 on chain — the change on the lever is an
+           illustration of the mechanism, not a record of an event, and the old wording put it
+           in the past tense. The BEAT is untouched and stays true: a real 2-of-3 transaction
+           did execute on mainnet before the handover, and its hash is on the plate. */
+        sub: "This is what a parameter change through the Safe looks like — two keys, or nothing moves.",
         beat: "This is a real Safe transaction, executed on mainnet before the handover.",
       };
       if (t < S.pending) return {
@@ -466,8 +474,14 @@ export function s6Governance(): Scene3D {
       };
       if (t < S.fixed) return {
         title: "And one does not, yet.",
-        sub: "The funder registry still answers to the deployer key. It is one transaction from the Safe, and it has not been sent.",
-        beat: "Shown at the same size as the six, because that is the only version worth showing.",
+        /* The remedy moved to the beat, so the subtitle stops repeating it. Before, both lines
+           said "one transaction, not sent" — the same fix that was applied to S4's beat, undone
+           in the next scene by the edit that was supposed to improve it. */
+        sub: "The funder registry still answers to the deployer key — the one contract the handover did not cover.",
+        /* Was commentary about the deck's own honesty. S2's refusal beat already carries one
+           of those and earns it; a second spends a beat awarding itself credit. The fact is
+           stronger, and it demonstrates the same thing without saying so. */
+        beat: "One transaction moves it to the Safe. It has not been sent.",
       };
       return {
         title: "Some things no key reaches.",

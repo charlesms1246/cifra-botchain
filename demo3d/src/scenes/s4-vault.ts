@@ -656,7 +656,11 @@ export function s4Vault(): Scene3D {
       if (t < S.gateList) return {
         title: "Deposits can be restricted.",
         sub: "Tranche shares are plausibly securities, so the vaults can gate who deposits and who holds shares.",
-        beat: "Deposits are gated. Transfers are gated. Withdrawal never is.",
+        /* S5's de-listing beat is "Deposits are gated. Transfers are gated. Withdrawal is
+           deliberately not." — this said almost exactly that, 43 seconds earlier, which spent
+           the line twice and blunted the one that is a payoff. This one now lands what S4
+           actually shows: the gate turning an address away. */
+        beat: "An address that is not on the list is refused by the contract, not by the interface.",
       };
       if (t < S.depositIn) return {
         title: "Funders provide the capital.",
