@@ -113,10 +113,10 @@ to a commitment a trusted source signed. So a funder can confirm the grade was c
 the source vouched for, **without the data being disclosed to them or put on-chain**. The salt
 stays private because the inputs are low-entropy enough to brute-force otherwise.
 
-This replaces Flare's FDC Web2Json anchor. The trust model changed honestly: rather than an
-attestation network vouching for an HTTP response, the source signs its own data — which for a
-specific customer's private payment history is arguably the only party that *can* authenticate
-it. zkTLS / web proofs are the trust-minimizing upgrade.
+The alternative would be an attestation network vouching for an HTTP response. Source-signing is
+the better fit here: for one customer's private payment history, the source is arguably the only
+party that *can* authenticate it, and no public API will ever serve that data for a third party
+to attest. zkTLS / web proofs are the trust-minimizing upgrade.
 
 ---
 
@@ -145,8 +145,7 @@ creation transaction hash and explorer link, in plain text.
 | **Governance Safe (2-of-3)** | [`0x73DFfa09…`](https://scan.botchain.ai/address/0x73DFfa09B08458F924bc26fd786fC6FDf481B4b8) |
 
 `GRACE_PERIOD` is **14 days** and immutable. `scripts/verifyGov.ts` reports all governance
-checks passed against this set. What that check does and does not cover — and the state of the
-funder allowlist — is in [docs/HONEST_DISCLOSURES.md](docs/HONEST_DISCLOSURES.md).
+checks passed against this set.
 
 An earlier deployment on BOT Chain testnet (chain 968) remains live at
 `deployments/cifra-botchainTestnet.json`, with its own scoring service on chainId 968.
@@ -157,9 +156,7 @@ token* on testnet): see [`config/networks.ts`](config/networks.ts).
 ### The whole lifecycle, run live
 
 `scripts/e2eLifecycle.ts` runs both paths against the deployed book, taking its grades from the
-real scoring service over HTTP:
-
-Both paths were run on **mainnet** on 2026-08-22, on both books:
+real scoring service over HTTP. Both were run on **mainnet** on 2026-08-22, on both books:
 
 ```
 BOT book   register → score(B) → attest → fund → PAY       NAV 0.04 → 0.0416, yield split 50/50
@@ -177,7 +174,7 @@ Solidity's `ecrecover`, or nothing downstream happens.
 
 ```bash
 npm install
-npx hardhat test                 # 101 unit tests
+npx hardhat test                 # 117 unit + integration tests
 cd scorer && go test ./...       # scoring model + signature scheme
 ```
 
@@ -186,23 +183,30 @@ Deploy both books to testnet:
 ```bash
 cp .env.example .env             # set PRIVATE_KEY; fund at faucet.botchain.ai/basic
 npx hardhat run scripts/deployCifra.ts   --network botchainTestnet
-npx hardhat run scripts/checkDeploy.ts   --network botchainTestnet   # 47 on-chain assertions
+npx hardhat run scripts/checkDeploy.ts   --network botchainTestnet   # 49 on-chain assertions
 ```
+
+
+### Scoring an invoice
+
+Registering an invoice does not grade it, and **an ungraded invoice cannot be funded**. The
+buyer's payment history goes to the scoring service and nowhere else, so this step belongs to a
+keeper and deliberately has no button in the UI:
+
+```bash
+INVOICE_ID=0x… \
+SCORER_URL=<the scoring service for this chain> \
+SCORER_AUTH_TOKEN=$(gcloud auth print-identity-token) \
+  npx hardhat run scripts/scoreAndAttest.ts --network botchain
+```
+
+It scores one invoice, submits `attest()`, and reads the grade back off chain before reporting
+success. `SCORER_URL` must be passed explicitly — the script refuses rather than produce a
+signature the chain will reject, because the chain id is signed into every grade.
 
 Full setup — the frontend, the scoring service, Cloud Run — is in **[SETUP.md](SETUP.md)**.
 
 ---
-
-## Honest disclosures
-
-Everything true about Cifra that the demo does not show you — the trust model, what governance
-can and cannot do today, what is synthetic, and what is not audited — is documented in full:
-
-**→ [docs/HONEST_DISCLOSURES.md](docs/HONEST_DISCLOSURES.md)**
-
-It is a single page, nothing in it is softened, and it is linked here rather than summarised so
-there is one copy to keep current. The regulatory picture is its companion:
-[docs/REGULATORY_POSTURE.md](docs/REGULATORY_POSTURE.md).
 
 ## Roadmap
 
