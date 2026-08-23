@@ -37,6 +37,14 @@ const S = {
 };
 
 const SUP_X = -5.0;
+/* Turned toward the cabinet, which sits behind and to their left. NOT the
+   exact bearing (-1.77): squared up to it they are seen edge-on and the sad
+   look — the entire reason for the turn — faces away from the audience. This
+   is far enough round to read as looking at the drawer and shallow enough to
+   keep the face in frame, which is the standard theatre cheat and the right
+   one here. */
+const SUP_RY = 1.15;
+const CAB_RY = -1.00;
 const FACT_X = 5.2;
 const CAB_X = -7.0;
 
@@ -54,7 +62,7 @@ export function s0Trade(): Scene3D {
     loop: LOOP,
 
     build(root) {
-      env = makeEnvironment(root, { kind: "spires", density: 0.8, motes: 8, seed: 5 });
+      env = makeEnvironment(root, { kind: "freight", density: 0.8, motes: 8, seed: 5, loop: LOOP });
       gridFloor(root, 70, ACCENT, 0.08);
 
       /* -- the factor: a tower, not a person. The institution is the point. */
@@ -85,7 +93,7 @@ export function s0Trade(): Scene3D {
       /* -- the two parties -------------------------------------------- */
       supplier = makeFigure(root, "supplier");
       supplier.g.position.set(SUP_X, 0, 1.4);
-      supplier.face(1.15);
+      supplier.face(SUP_RY);
 
       factor = makeFigure(root, "factor");
       factor.g.position.set(FACT_X - 2.9, 0, 1.9);
@@ -142,6 +150,21 @@ export function s0Trade(): Scene3D {
 
     update(t) {
       env.update(t);
+
+      /* ── the supplier watches the drawer ───────────────────────────
+         They turn away from the trade as it opens, hold there while their
+         customer file empties, and are back round before the cut. The turn
+         is what makes the drawer their loss rather than a prop: everything
+         else in this scene happens TO the invoice, and this happens to them.
+
+         `look` blends to 1 on the pull and back to 0 well before S.holdEnd,
+         so the shot after the cut opens on a figure already settled — a
+         head still rotating through a cut reads as an error. */
+      const look = eInOut(seg(t, S.drawerPull - 0.3, S.drawerOpen))
+        * (1 - eInOut(seg(t, S.recordsGone + 2.6, S.recordsGone + 4.0)));
+      supplier.face(lerp(SUP_RY, CAB_RY, look));
+      supplier.express(
+        t >= S.drawerOpen && t < S.recordsGone + 4.0 ? "down" : "neutral");
       supplier.update(t);
       factor.update(t);
       inv.update(t);

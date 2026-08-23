@@ -20,6 +20,7 @@
 
    Loop 22s. */
 
+import type * as THREE from "three";
 import type { Scene3D, Shot, Caption } from "../engine";
 import { gridFloor } from "../voxel";
 import { board, boardPlane, cardHead, figureText } from "../board";
@@ -59,13 +60,14 @@ export function s1Commitment(): Scene3D {
   let env: EnvHandle;
   let inv: InvoiceHandle;
   let supplier: FigureHandle;
+  let registry: THREE.Mesh;
   let edited = false;
 
   return {
     loop: LOOP,
 
     build(root) {
-      env = makeEnvironment(root, { kind: "ridge", density: 0.5, motes: 6, seed: 31 });
+      env = makeEnvironment(root, { kind: "freight", density: 0.45, motes: 6, seed: 31, loop: LOOP });
       gridFloor(root, 60, ACCENT, 0.085);
 
       inv = makeInvoice(root, { buyer: "ACME CORP", amount: "26,480.00", hash: HASH_A, items: ITEMS_A });
@@ -83,26 +85,62 @@ export function s1Commitment(): Scene3D {
          thing a viewer can look up. Mechanism, not status, so an address
          belongs on it.
 
-         Placed UPSTAGE-LEFT (negative z, x well left of the slab at 1.8)
-         per PLAN.md §4.4: every shot here pushes toward the page, so
-         anything on the camera side of it fills the frame at exactly the
-         beat that has to be read. Low, and outside the horizontal span the
-         C1 telephoto holds. */
+         Placed UPSTAGE-RIGHT of the slab (which sits at x 1.8 and spans to
+         about 2.55), not left. On the left it sat directly behind the
+         supplier and read as something the FIGURE was holding rather than
+         somewhere the hash had gone — and the page it belongs to was on the
+         other side of frame from it.
+
+         Still upstage (negative z) per PLAN.md §4.4: every shot here pushes
+         toward the page, so anything on the camera side of it fills the
+         frame at exactly the beat that has to be read.
+
+         AND IT IS HIDDEN UNTIL ITS BEAT. I first placed it here reasoning it
+         would fall outside the C1 telephoto's span; it does not — C1 holds
+         to about x 4.8 and the board runs to 5.4, so it sat clipped against
+         the right edge through the whole opening shot, next to a caption
+         that says none of this is sent anywhere. The geometry argument was
+         the wrong one to make: the fix is not a position that dodges every
+         shot, it is that a prop appears on the beat it belongs to.
+
+         That beat is S.settle, not S.fold. At the fold the page is still
+         open and mid-transition, and from C2 it covers the left half of this
+         board — a registry address with its first six characters behind an
+         invoice. By the settle the page has folded down to the slab and the
+         plate stands clear beside it, which is also where the caption starts
+         saying a viewer can check this later. Struck at S.reopen with the
+         rest of the reset. */
       const rb = board(680, 190, (c) => {
         cardHead(c, 4, 46, "COMMITMENT RECORDED", ACCENT_DEEP, 21);
         cardHead(c, 4, 96, "CIFRA INVOICE REGISTRY", PAPER, 26);
         figureText(c, 4, 156, shortAddr(addr.registry).toUpperCase(), ACCENT, 30, "700");
       });
-      const rp = boardPlane(rb, 2.5, 2.5 * 190 / 680, { renderOrder: 4 });
-      rp.position.set(-2.75, 0.78, -1.55);
-      rp.rotation.y = 0.30;
+      /* Narrower and higher than the first placement. C3 opens on the C2
+         framing, where the slab is still large and centre-right: at x 4.15
+         and y 0.78 the board's left third sat behind it for the first four
+         seconds of its own beat, which cost the address its leading
+         characters — the part a viewer would actually use. Lifted above the
+         slab's mid-line and pulled in narrower, it clears the page from the
+         first frame it appears and still sits inside the frame at HOME. */
+      const rp = boardPlane(rb, 2.2, 2.2 * 190 / 680, { renderOrder: 4 });
+      rp.position.set(4.55, 1.32, -0.75);
+      rp.rotation.y = -0.34;
+      rp.visible = false;
       root.add(rp);
+      registry = rp;
     },
 
     update(t) {
       env.update(t);
       supplier.update(t);
       inv.update(t);
+
+      /* On for its own beat only. Scaled in rather than switched on, because
+         it arrives while the camera is already moving and a plate that pops
+         mid-move reads as a glitch rather than as an arrival. */
+      const shown = t >= S.settle && t < S.reopen;
+      registry.visible = shown;
+      if (shown) registry.scale.setScalar(lerp(0.82, 1, eOutBack(seg(t, S.settle, S.settle + 0.55))));
 
       /* The edit. A discrete swap on one frame — see the header. The `edited`
          guard keeps it a single redraw rather than one per frame, but the

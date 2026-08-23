@@ -149,7 +149,7 @@ export function s5Waterfall(): Scene3D {
     loop: LOOP,
 
     build(root) {
-      env = makeEnvironment(root, { kind: "racks", density: 0.7, motes: 7, seed: 11 });
+      env = makeEnvironment(root, { kind: "freight", density: 0.7, motes: 7, seed: 11, loop: LOOP });
       gridFloor(root, 60, ACCENT, 0.085);
 
       basins = makeBasins(root, { book: "BOT" });
@@ -359,7 +359,13 @@ export function s5Waterfall(): Scene3D {
       supplier.update(t, (t > 1.0 && t < 3.4) || (t > 9.0 && t < 11.0) ? 1 : 0);
 
       /* Risers. Up is 0, down is out of sight below the stage. */
-      const DOWN = -2.9;
+      /* Deeper than the tallest thing standing on a riser, which is a
+         FUNDER PLATE at y 3.30 with a half-height of 0.26 — so its top rides
+         at 3.56, and at DOWN -2.9 it stopped 0.66 above the stage floor.
+         The figure was gone and its heading was still sitting there, which
+         is worse than not lowering it at all. -4.2 clears the plate with
+         room, and nothing on a riser reaches that high. */
+      const DOWN = -4.2;
       const buyerUp = 1
         - eInOut(seg(t, S.buyerDown0, S.buyerDown1))
         + eInOut(seg(t, S.buyerUp0, S.buyerUp1));

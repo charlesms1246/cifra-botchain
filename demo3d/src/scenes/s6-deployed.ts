@@ -69,7 +69,7 @@ export function s7Deployed(): Scene3D {
     loop: LOOP,
 
     build(root) {
-      env = makeEnvironment(root, { kind: "spires", density: 0.75, motes: 8, seed: 97 });
+      env = makeEnvironment(root, { kind: "freight", density: 0.75, motes: 8, seed: 97, loop: LOOP });
       gridFloor(root, 70, ACCENT, 0.08);
 
       // the plate the panels stand on

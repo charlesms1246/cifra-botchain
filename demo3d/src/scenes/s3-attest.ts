@@ -57,7 +57,7 @@ export function s3Attest(): Scene3D {
     loop: LOOP,
 
     build(root) {
-      env = makeEnvironment(root, { kind: "racks", density: 0.55, motes: 5, seed: 47 });
+      env = makeEnvironment(root, { kind: "freight", density: 0.55, motes: 5, seed: 47, loop: LOOP });
       gridFloor(root, 50, ACCENT, 0.085);
 
       // the anvil the slab lies on

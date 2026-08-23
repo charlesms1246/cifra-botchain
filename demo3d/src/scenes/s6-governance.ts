@@ -105,7 +105,7 @@ export function s6Governance(): Scene3D {
     loop: LOOP,
 
     build(root) {
-      env = makeEnvironment(root, { kind: "spires", density: 0.7, motes: 7, seed: 131 });
+      env = makeEnvironment(root, { kind: "freight", density: 0.7, motes: 7, seed: 131, loop: LOOP });
       gridFloor(root, 70, ACCENT, 0.08);
 
       /* -- the Safe: one heavy block, and it is the only thing on stage that

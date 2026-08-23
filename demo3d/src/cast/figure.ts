@@ -47,11 +47,15 @@ export type FigureKind = "supplier" | "factor" | "funder" | "buyer" | "passerby"
 export type Expression = "neutral" | "alert" | "worry" | "pleased" | "down";
 
 const FACES: Record<Expression, [number, number, number]> = {
+  /* `open` never goes low enough to turn a square eye back into a bar —
+     that is the whole reason the eye is square. A pleased squint reads at
+     0.60; below about 0.45 the eye and the brow become the same shape and
+     the face reads as four brows. */
   neutral: [0.000, 0.00, 1.00],
   alert: [0.055, 0.00, 1.18],
-  worry: [-0.020, 0.42, 0.92],
-  pleased: [0.028, 0.06, 0.42],   // a blocky face smiles by squinting
-  down: [-0.050, 0.34, 0.55],
+  worry: [-0.020, 0.42, 0.90],
+  pleased: [0.028, 0.06, 0.60],   // a blocky face smiles by squinting
+  down: [-0.050, 0.34, 0.66],
 };
 
 export interface FigureOpts {
@@ -213,8 +217,13 @@ export function makeFigure(
   const brows: THREE.Mesh[] = [];
   if (!s.sealed) {
     for (const sx of [-1, 1]) {
-      eyes.push(obox(body, 0.135, 0.155, 0.02, INK, sx * 0.145, 1.665, 0.295, { outline: false }));
-      brows.push(obox(body, 0.185, 0.048, 0.02, INK, sx * 0.145, 1.820, 0.297, { outline: false }));
+      /* SQUARE eyes, and a brow that is emphatically not square. At 0.135 x
+         0.155 the eye was near enough a bar that at S3's distance the two
+         pairs read as four brows, and the face lost the one axis expression
+         travels on. A square eye and a thin wide brow cannot be mistaken for
+         each other at any size. */
+      eyes.push(obox(body, 0.17, 0.17, 0.02, INK, sx * 0.155, 1.660, 0.295, { outline: false }));
+      brows.push(obox(body, 0.235, 0.034, 0.02, INK, sx * 0.155, 1.862, 0.297, { outline: false }));
     }
   }
 
@@ -255,8 +264,8 @@ export function makeFigure(
         const sx = i === 0 ? -1 : 1;
         eyes[i].scale.y = openY;
         // squinting and blinking both close from the TOP, like a lid
-        eyes[i].position.y = 1.665 + 0.155 * (1 - openY) / 2;
-        brows[i].position.y = 1.820 + raise;
+        eyes[i].position.y = 1.660 + 0.17 * (1 - openY) / 2;
+        brows[i].position.y = 1.862 + raise;
         brows[i].rotation.z = -sx * tilt;
       }
     },

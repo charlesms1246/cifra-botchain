@@ -27,7 +27,7 @@ import { prng } from "./craft";
 import { glowSprite } from "./voxel";
 
 export interface EnvOpts {
-  kind?: "racks" | "spires" | "ridge";
+  kind?: "racks" | "spires" | "ridge" | "freight";
   accent?: number;
   /** 0..1.5 multiplier on tower and light counts. 0 keeps ground + horizon. */
   density?: number;
@@ -35,6 +35,10 @@ export interface EnvOpts {
   horizon?: boolean;
   ground?: boolean;
   seed?: number;
+  /** The SCENE's loop length, in seconds. Required for the freight yard's
+   *  moving traffic and ignored otherwise — see `movers` below. Without it
+   *  the yard is built static, which is the safe failure. */
+  loop?: number;
 }
 
 export interface EnvHandle {
@@ -43,6 +47,28 @@ export interface EnvHandle {
 }
 
 interface Tower { x: number; z: number; w: number; h: number; d: number }
+/** A box placed at an explicit height — container tiers, crane beams. */
+interface Slab { x: number; y: number; z: number; w: number; h: number; d: number }
+
+/* A silhouette that crosses the yard: a ship, a train, a truck.
+   ─────────────────────────────────────────────────────────────────────────
+   THE HARD CONSTRAINT IS THE SEAM. Every scene loops, and a backdrop that
+   does not land on the same frame at t=loop as at t=0 breaks the one
+   property the whole capture pipeline rests on (§9). So a mover crosses a
+   WHOLE number of times per loop and its position is `((t/loop)*laps +
+   phase) mod 1` — which is phase at t=0 and phase again at t=loop, exactly,
+   with no accumulated state to drift.
+
+   That is why `loop` is a required option for traffic: if a scene does not
+   declare its own loop length there is no period that provably closes, and
+   the yard is built static instead of built wrong. */
+interface Mover {
+  g: THREE.Group;
+  span: number;   // half the travel, wider than the visible span so it wraps off-frame
+  laps: number;   // whole crossings per loop
+  phase: number;
+  dir: 1 | -1;
+}
 
 export function makeEnvironment(parent: THREE.Object3D, opts: EnvOpts = {}): EnvHandle {
   const kind = opts.kind ?? "racks";
@@ -162,7 +188,124 @@ export function makeEnvironment(parent: THREE.Object3D, opts: EnvOpts = {}): Env
     g.add(im);
   }
 
-  if (kind === "spires") {
+  /* ── freight ──────────────────────────────────────────────────────
+     A container yard under gantry cranes, instead of the generic blocks the
+     other three kinds draw. It is the right backdrop on the merits, not just
+     for the look: freight is the trade that actually runs on invoices at
+     volume — long terms, thin margins, a counterparty on the other side of
+     an ocean — so a stage that ends in a port names the customer rather than
+     decorating for one.
+
+     What makes it read as a yard rather than as more boxes is the MODULE.
+     Every container is the same 5:1:1 slab, they stack in tiers on a shared
+     footprint, and the gantries that straddle them repeat one silhouette at
+     three depths. Randomness lives only in where a stack goes and how high
+     it is; the unit never varies, which is the opposite of the scatter the
+     other kinds use. */
+
+  function emit(list: Slab[], col: THREE.Color): void {
+    if (!list.length) return;
+    const im = new THREE.InstancedMesh(
+      boxGeo, new THREE.MeshBasicMaterial({ color: col }), list.length,
+    );
+    const M = new THREE.Matrix4(), C = new THREE.Color();
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      M.makeScale(b.w, b.h, b.d);
+      M.setPosition(b.x, b.y, b.z);
+      im.setMatrixAt(i, M);
+      C.copy(col).multiplyScalar(rr(0.84, 1.16));
+      im.setColorAt(i, C);
+    }
+    im.instanceMatrix.needsUpdate = true;
+    if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    g.add(im);
+  }
+
+  /** Container stacks: n footprints, each 1..maxHigh tiers of one module. */
+  function yard(
+    n: number, col: THREE.Color,
+    zA: number, zB: number, xR: number,
+    u: number, maxHigh: number, gap: number,
+  ): void {
+    n = Math.round(n * dens);
+    if (n <= 0) return;
+    const out: Slab[] = [];
+    const NC = 5, cx: number[] = [];
+    for (let i = 0; i < NC; i++) {
+      cx.push(-xR + (i + 0.5) * ((2 * xR) / NC) + (R() - 0.5) * xR * 0.18);
+    }
+    for (let i = 0; i < n; i++) {
+      const bx = cx[(R() * NC) | 0] + (R() + R() - 1) * u * 6.5;
+      if (gap && Math.abs(bx) < gap) continue;
+      const bz = rr(zA, zB);
+      const w = u * rr(4.4, 5.6);          // a container is long and low
+      const d = u * rr(0.95, 1.15);
+      // Same clearance rule as `layer`: the title block owns the top left.
+      let high = 1 + ((R() * maxHigh) | 0);
+      if (bx < -8) high = Math.min(high, Math.max(1, Math.round(maxHigh / 2)));
+      for (let k = 0; k < high; k++) {
+        /* Tiers are offset a little, never aligned. A perfectly stacked
+           column extrudes into one tall box and the module disappears —
+           which is the whole thing this backdrop has to keep. */
+        out.push({
+          x: bx + (R() - 0.5) * u * 0.55,
+          y: u * (k + 0.5) - 0.2,
+          z: bz + (R() - 0.5) * u * 0.35,
+          w, h: u * 0.94, d,
+        });
+      }
+      towers.push({ x: bx, z: bz, w, h: u * high, d });   // LED strips find these
+    }
+    emit(out, col);
+  }
+
+  /** Portal gantries straddling the yard: two legs and a spanning beam. */
+  function gantries(
+    n: number, col: THREE.Color,
+    zA: number, zB: number, xR: number,
+    u: number, gap: number,
+  ): void {
+    n = Math.round(n * dens);
+    if (n <= 0) return;
+    const out: Slab[] = [];
+    for (let i = 0; i < n; i++) {
+      const x = (R() * 2 - 1) * xR;
+      const span = u * rr(7, 11);
+      if (gap && Math.abs(x) < gap + span / 2) continue;
+      const z = rr(zA, zB);
+      /* Tall. A container port is a LOW field of boxes with tall cranes
+         standing over it, and the cranes are the whole silhouette — at the
+         same height as the stacks the yard reads as one dark band and the
+         backdrop says nothing. */
+      const h = u * rr(5.4, 8.2) * (x < -8 ? 0.55 : 1);
+      const leg = u * 0.42, dep = u * 0.55;
+      for (const sx of [-1, 1]) {
+        out.push({ x: x + sx * span / 2, y: h / 2 - 0.2, z, w: leg, h, d: dep });
+      }
+      // the beam, and the trolley hanging under it
+      out.push({ x, y: h - 0.2 + u * 0.22, z, w: span + leg * 2, h: u * 0.44, d: dep * 1.15 });
+      out.push({
+        x: x + (R() - 0.5) * span * 0.5, y: h - 0.2 - u * 0.25, z,
+        w: u * 0.7, h: u * 0.5, d: dep,
+      });
+    }
+    emit(out, col);
+  }
+
+  if (kind === "freight") {
+    /* Low field, tall cranes — that contrast IS the silhouette.
+       The near layer sits further back than the other kinds put theirs
+       (-42 rather than -30): a gantry is the tallest thing this backdrop
+       draws, and at 30 units its legs came down through the caption block
+       in the top left. It is scenery; it gets the distance. */
+    yard(18, NEAR_C, -42, -62, 34, 1.05, 3, 8);
+    gantries(3, NEAR_C, -44, -60, 30, 1.15, 10);
+    yard(28, MID_C, -70, -108, 48, 1.8, 3, 0);
+    gantries(6, MID_C, -74, -104, 44, 2.0, 0);
+    yard(36, FAR_C, -124, -205, 72, 3.0, 3, 0);
+    gantries(6, FAR_C, -132, -198, 64, 3.3, 0);
+  } else if (kind === "spires") {
     layer(22, NEAR_C, -30, -52, 34, 0.9, 1.9, 4.6, 0.9, 1.8, 7);
     layer(36, MID_C, -64, -104, 48, 1.1, 2.6, 7.5, 1.1, 2.4, 0);
     layer(50, FAR_C, -120, -205, 72, 1.6, 3.6, 9.0, 1.6, 3.4, 0);
@@ -209,6 +352,96 @@ export function makeEnvironment(parent: THREE.Object3D, opts: EnvOpts = {}): Env
     }
   }
 
+  /* ── traffic ──────────────────────────────────────────────────────
+     Ships on the horizon, trains across the middle distance, trucks on the
+     near road. A yard is a place where things are MOVING — a still one is a
+     yard at 3am, which is a different and much less interesting claim about
+     the trade this deck is financing.
+
+     Kept honest to §4.5's rule that the eye must not go to the scenery:
+     silhouette-dark in their layer's own colour, no lights of their own, no
+     outlines, and ONE crossing per loop, so nothing out here ever moves
+     faster than the slowest thing on stage. */
+  const movers: Mover[] = [];
+
+  function body(gr: THREE.Group, col: THREE.Color,
+    x: number, y: number, w: number, h: number, d: number): void {
+    const m = new THREE.Mesh(boxGeo, new THREE.MeshBasicMaterial({ color: col }));
+    m.scale.set(w, h, d);
+    m.position.set(x, y, 0);
+    gr.add(m);
+  }
+
+  /* A mover sits IN FRONT of the yard layer it belongs to and is a step
+     lighter than it. Built in the layer's own colour and dropped inside the
+     layer's own depth band, a moving silhouette is invisible against a
+     static one of identical value — the backdrop just shimmers, which is
+     the worst of both: motion the eye catches and nothing it can name. */
+  function addMover(build: (gr: THREE.Group, col: THREE.Color) => void,
+    base: THREE.Color, lift: number, z: number,
+    span: number, laps: number, dir: 1 | -1): void {
+    const gr = new THREE.Group();
+    build(gr, base.clone().multiplyScalar(lift));
+    gr.position.z = z;
+    if (dir < 0) gr.rotation.y = Math.PI;
+    g.add(gr);
+    movers.push({ g: gr, span, laps, phase: R(), dir });
+  }
+
+  /** A container ship: long hull, deck stacks, a bridge block aft. */
+  function ship(u: number) {
+    return (gr: THREE.Group, col: THREE.Color): void => {
+      body(gr, col, 0, u * 0.75, u * 26, u * 1.5, u * 3.4);
+      for (let i = 0; i < 7; i++) {
+        const bx = -u * 10 + i * u * 2.9;
+        const tiers = 1 + ((R() * 3) | 0);
+        for (let k = 0; k < tiers; k++) {
+          body(gr, col, bx, u * (1.5 + k * 0.75), u * 2.5, u * 0.7, u * 3.0);
+        }
+      }
+      body(gr, col, u * 10.4, u * 2.6, u * 2.8, u * 2.4, u * 3.2);   // bridge
+      body(gr, col, u * 10.4, u * 4.4, u * 0.8, u * 1.4, u * 0.9);   // funnel
+    };
+  }
+
+  /** A freight train: locomotive plus flat wagons carrying one box each. */
+  function train(u: number) {
+    return (gr: THREE.Group, col: THREE.Color): void => {
+      body(gr, col, 0, u * 0.9, u * 3.0, u * 1.8, u * 1.2);          // loco
+      for (let i = 1; i <= 5; i++) {
+        const bx = -i * u * 4.6;
+        body(gr, col, bx, u * 0.35, u * 4.2, u * 0.45, u * 1.1);     // flat
+        body(gr, col, bx, u * 1.05, u * 3.6, u * 0.95, u * 1.0);     // container
+      }
+    };
+  }
+
+  /** A truck: cab, trailer, and enough wheel to break the box. */
+  function truck(u: number) {
+    return (gr: THREE.Group, col: THREE.Color): void => {
+      body(gr, col, u * 2.4, u * 0.85, u * 1.4, u * 1.3, u * 1.0);   // cab
+      body(gr, col, -u * 0.6, u * 1.0, u * 4.6, u * 1.5, u * 1.05);  // trailer
+      for (const wx of [u * 2.4, -u * 1.6, -u * 2.5]) {
+        body(gr, col, wx, u * 0.2, u * 0.5, u * 0.4, u * 1.15);
+      }
+    };
+  }
+
+  if (kind === "freight" && opts.loop && dens > 0) {
+    /* Lifts tuned by eye against a 4x-brightened frame: at 1.5x they were
+       technically present and practically invisible, which is a moving
+       backdrop nobody can see. These sit a clear step above their layer and
+       still well under anything on stage. Trucks ride INSIDE the near yard's
+       depth band rather than in front of it — closer, they crossed the
+       bottom of wide frames as unexplained pale blocks. */
+    addMover(ship(3.2), FAR_C, 2.45, -120, 190, 1, 1);
+    addMover(ship(2.7), FAR_C, 2.15, -142, 205, 1, -1);
+    addMover(train(1.7), MID_C, 2.30, -68, 122, 1, -1);
+    addMover(train(1.5), MID_C, 2.05, -60, 112, 1, 1);
+    addMover(truck(0.95), NEAR_C, 2.10, -44, 74, 1, 1);
+    addMover(truck(0.90), NEAR_C, 1.90, -40, 72, 1, -1);
+  }
+
   /* ── beacons on the tallest far towers ────────────────────────────── */
   const beacons: { s: THREE.Sprite; o0: number; ph: number }[] = [];
   if (kind !== "ridge" && dens > 0) {
@@ -253,6 +486,13 @@ export function makeEnvironment(parent: THREE.Object3D, opts: EnvOpts = {}): Env
       }
       for (const b of beacons) {
         b.s.material.opacity = b.o0 * (0.78 + 0.22 * Math.sin(t * 0.5 + b.ph));
+      }
+      /* Traffic. `laps` whole crossings per loop, so u is the same at t=0 and
+         t=loop and the seam closes exactly — see the Mover comment. */
+      const L = opts.loop ?? 1;
+      for (const m of movers) {
+        const u = ((((t / L) * m.laps + m.phase) % 1) + 1) % 1;
+        m.g.position.x = m.dir > 0 ? -m.span + u * 2 * m.span : m.span - u * 2 * m.span;
       }
     },
   };

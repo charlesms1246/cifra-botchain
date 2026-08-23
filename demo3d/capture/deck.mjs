@@ -85,12 +85,34 @@ try {
     ff.stdin.once("error", onError);
   });
 
+  /* Re-establish the page after a reload. A full render is ~20 minutes, and
+     any save under src/ makes Vite hot-reload the page — which drops
+     window.__seek and throws mid-run, losing the whole pass. Editing during a
+     capture is the actual mistake, but a 20-minute job should not be one
+     keystroke from the bin, so a lost frame is recovered rather than fatal. */
+  const attach = async (sceneId) => {
+    await page.waitForFunction(() => window.__ready === true, null, { timeout: 30_000 });
+    await page.addStyleTag({ content: '[data-chrome="ui"]{display:none!important}' });
+    await page.evaluate((n) => window.__goto(n), sceneId);
+  };
+
+  const seek = async (sceneId, t) => {
+    try {
+      await page.evaluate((s) => window.__seek(s), t);
+    } catch (e) {
+      if (!/__seek is not a function|Execution context/.test(String(e))) throw e;
+      process.stdout.write("\n  [page reloaded — reattaching]\n");
+      await attach(sceneId);
+      await page.evaluate((s) => window.__seek(s), t);
+    }
+  };
+
   const t0 = Date.now();
   let done = 0;
   for (const p of plan) {
     await page.evaluate((n) => window.__goto(n), p.id);
     for (let i = 0; i < p.frames; i++) {
-      await page.evaluate((t) => window.__seek(t), i / fps);
+      await seek(p.id, i / fps);
       await write(await page.screenshot({ type: "png" }));
       done++;
       if (done % 60 === 0 || done === total) {

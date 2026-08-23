@@ -24,7 +24,7 @@ import * as THREE from "three";
 import type { Scene3D, Shot, Caption } from "../engine";
 import { gridFloor, obox } from "../voxel";
 import { board, boardPlane, cardHead, figureText } from "../board";
-import { css, PAPER, ACCENT, ACCENT_DEEP, ACCENT_LIGHT, SUCCESS, WARNING, LOSS, STEEL } from "../palette";
+import { css, INK, PAPER, ACCENT, ACCENT_DEEP, ACCENT_LIGHT, SUCCESS, WARNING, LOSS, STEEL } from "../palette";
 import { makeEnvironment, type EnvHandle } from "../env";
 import { makeBasins, type BasinsHandle } from "../cast/basins";
 import { makeInvoice, type InvoiceHandle } from "../cast/invoice";
@@ -133,7 +133,7 @@ export function s4Vault(): Scene3D {
     loop: LOOP,
 
     build(root) {
-      env = makeEnvironment(root, { kind: "racks", density: 0.7, motes: 7, seed: 61 });
+      env = makeEnvironment(root, { kind: "freight", density: 0.75, motes: 7, seed: 61, loop: LOOP });
       gridFloor(root, 70, ACCENT, 0.08);
 
       /* The BOT book's plates hang LEFT, the USDT book's RIGHT — outward,
@@ -256,23 +256,29 @@ export function s4Vault(): Scene3D {
          as the address the whole first beat was about. It only appears once
          they are on the list. */
       {
-        const lb = board(520, 90, (c) => {
-          c.clearRect(0, 0, 520, 90);
-          cardHead(c, 4, 58, "ALLOWLISTED", SUCCESS, 26);
+        /* An opaque CARD, not bare type — the only funder plate that is.
+           This one has to sit over the BOT rig's junior fill, and green
+           letters on a terracotta wash is the one combination in this
+           palette that goes to mush. Given a ground and a border it reads
+           against anything, which means it no longer has to be moved away
+           from its owner to be legible. */
+        const lb = board(520, 130, (c) => {
+          c.fillStyle = css(INK);
+          c.fillRect(0, 0, 520, 130);
+          c.strokeStyle = css(SUCCESS);
+          c.lineWidth = 5;
+          c.strokeRect(2.5, 2.5, 515, 125);
+          c.fillStyle = css(SUCCESS);
+          c.fillRect(0, 0, 520, 9);
+          cardHead(c, 20, 84, "ALLOWLISTED", SUCCESS, 30);
         });
-        gatePlateFig = boardPlane(lb, 1.7, 1.7 * 90 / 520, { renderOrder: 5 });
+        gatePlateFig = boardPlane(lb, 1.7, 1.7 * 130 / 520,
+          { transparent: false, renderOrder: 5 });
         gatePlateFig.visible = false;
-        /* Added to ROOT, not to the figure — the only plate in this scene
-           that is. The other two funders stand in open floor, so a plate
-           parented above their head lands against nothing. This one's row
-           mark is ROW[GATE_AT] x -5.0, and the BOT rig is at x -5.6: they
-           stand dead centre in front of it, so a head-height plate is
-           always against the tanks.
-
-           Parented, an offset to clear the rig would rotate with the figure
-           — and this figure turns through ninety degrees as it walks the
-           second leg. So the plate is positioned in WORLD space each frame
-           from wherever they are, which is what "a label belongs to the
+        /* Added to ROOT rather than to the figure, and driven in WORLD
+           space each frame — this figure turns through ninety degrees on the
+           second leg of its walk, and a parented plate would swing with it.
+           Root-parented and square to camera is what "a label belongs to the
            camera, not to its owner" (PLAN.md §4.4) actually asks for. */
         root.add(gatePlateFig);
       }
@@ -533,10 +539,15 @@ export function s4Vault(): Scene3D {
          SUP_X -15, and it is the side this funder walked in from. Held
          downstage (+z) of the rig as well, so depth separates them even
          where they overlap in screen space. */
+      /* Directly over their head. It used to be shunted 2.1 left and 1.3
+         downstage to dodge the rig behind it — far enough that it stopped
+         reading as this figure's label and started reading as a sign
+         standing on the floor beside them. The card ground above is what
+         bought the right to put it back where it belongs. */
       gatePlateFig.position.set(
-        gateFunder.g.position.x - 2.1,
-        2.28,
-        gateFunder.g.position.z + 1.3,
+        gateFunder.g.position.x,
+        2.72,
+        gateFunder.g.position.z + 0.2,
       );
       // Square to camera, like the other two end up after their counter-rotation.
       gatePlateFig.rotation.y = 0;

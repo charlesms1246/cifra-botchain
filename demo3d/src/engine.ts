@@ -119,9 +119,9 @@ export async function createEngine(canvas: HTMLCanvasElement): Promise<Engine> {
        shares a frame with. */
     `<div id="cap-chain" style="position:absolute;right:4.2vw;bottom:6.5vh;display:flex;` +
     `align-items:center;gap:.75em;opacity:.62">` +
-    `<span style="font:400 clamp(9px,.66vw,13px)/1 'Malinton',sans-serif;` +
+    `<span style="font:400 clamp(9px,.66vw,17px)/1 'Malinton',sans-serif;` +
     `letter-spacing:.22em;text-transform:uppercase;color:#f6f1ee99">Settled on</span>` +
-    `<img src="/brand/bot-chain.svg" alt="BOT Chain" style="height:clamp(13px,1.05vw,21px);display:block">` +
+    `<img src="/brand/bot-chain.svg" alt="BOT Chain" style="height:clamp(13px,1.05vw,27px);display:block">` +
     `</div>`;
   document.body.appendChild(chrome);
   const capTitle = chrome.querySelector("#cap-title") as HTMLDivElement;
@@ -130,10 +130,10 @@ export async function createEngine(canvas: HTMLCanvasElement): Promise<Engine> {
   function paintCaption(c: Caption | null): void {
     if (!c) { capTitle.innerHTML = ""; capBeat.innerHTML = ""; return; }
     capTitle.innerHTML =
-      `<div style="font:700 clamp(20px,2.05vw,40px)/1.15 'Malinton',sans-serif;color:#f6f1ee">${c.title}</div>` +
-      `<div style="margin-top:.55em;font:400 clamp(13px,1.02vw,20px)/1.45 'Malinton',sans-serif;color:#f6f1eeaa">${c.sub}</div>`;
+      `<div style="font:700 clamp(20px,2.05vw,53px)/1.15 'Malinton',sans-serif;color:#f6f1ee">${c.title}</div>` +
+      `<div style="margin-top:.55em;font:400 clamp(13px,1.02vw,27px)/1.45 'Malinton',sans-serif;color:#f6f1eeaa">${c.sub}</div>`;
     capBeat.innerHTML =
-      `<div style="display:inline-block;font:400 clamp(14px,1.18vw,23px)/1.5 'Malinton',sans-serif;color:#f6f1ee;` +
+      `<div style="display:inline-block;font:400 clamp(14px,1.18vw,31px)/1.5 'Malinton',sans-serif;color:#f6f1ee;` +
       `border-top:2px solid #de7356;padding-top:.7em;max-width:64vw">${c.beat}</div>`;
   }
 

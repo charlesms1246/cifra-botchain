@@ -91,7 +91,7 @@ export function s2Grade(): Scene3D {
     loop: LOOP,
 
     build(root) {
-      env = makeEnvironment(root, { kind: "racks", density: 0.62, motes: 6, seed: 23 });
+      env = makeEnvironment(root, { kind: "freight", density: 0.62, motes: 6, seed: 23, loop: LOOP });
       gridFloor(root, 60, ACCENT, 0.085);
 
       room = makeRoom(root);
@@ -113,8 +113,13 @@ export function s2Grade(): Scene3D {
       supplier.g.position.set(IN_X - 1.5, 0, 1.5);
       supplier.face(1.15);
 
+      /* Clear of the out-slot's own column. Both the grade card and the
+         refusal slip land at OUT_X + 0.5 and the card is 1.55 wide, so
+         anything inside about x 5.2 stands ON what it is supposed to be
+         receiving — which is what the funder did, filling half the frame at
+         the one beat the card has to be read. They stand ALONGSIDE now. */
       funder = makeFigure(root, "funder");
-      funder.g.position.set(OUT_X + 1.9, 0, 1.6);
+      funder.g.position.set(OUT_X + 3.2, 0, 1.6);
       funder.face(-1.2);
 
       /* -- the signed grade card ---------------------------------------- */
@@ -230,7 +235,17 @@ export function s2Grade(): Scene3D {
       ) > 0 || (t > S.feedEnd && t < S.feedEnd + 1.0) ? 1 : 0);
 
       const funStep = seg(t, S.cardOut - 0.8, S.cardSet) - seg(t, S.reset, S.reset + 1.2);
-      funder.g.position.x = OUT_X + 1.9 - 0.85 * funStep;
+      funder.g.position.x = OUT_X + 3.2 - 0.7 * funStep;
+      /* Both of them react, and only on the two beats worth reacting to:
+         the grade landing and the refusal. The refusal is a SECOND
+         submission, so the supplier who handed the first one in is watching
+         it happen rather than receiving it — worry, not shame. */
+      funder.express(
+        t >= S.refuse ? "down" : t >= S.badIn ? "worry"
+          : t >= S.cardSet ? "pleased" : t >= S.cardOut ? "alert" : "neutral");
+      supplier.express(
+        t >= S.badIn && t < S.caveatCut ? "worry"
+          : t >= S.cardSet && t < S.badIn ? "pleased" : "neutral");
       funder.update(t, (t > S.cardOut - 0.8 && t < S.cardSet) || (t > S.reset && t < S.reset + 1.2) ? 1 : 0);
 
       /* ── the slab is fed in, and a fresh one arrives at the end ────── */
@@ -350,13 +365,17 @@ export function s2Grade(): Scene3D {
           fov: 32,
         };
       }
-      // ── CUT ── C3 — tight on the out-slot as the grade lands.
+      /* ── CUT ── C3 — the grade lands, WITH the funder receiving it.
+         The first pass sat at fov 28 from four and a half units: at that
+         distance the figure standing beside the slot is a wall, and the card
+         — the only thing in this deck a funder is ever handed — was behind
+         it. Back off and open up until both fit side by side. */
       if (t < S.badIn) {
         const p = seg(t, S.cardOut, S.badIn);
         return {
-          pos: [lerp(5.4, 5.0, p), lerp(2.5, 2.2, p), lerp(4.6, 4.0, p)],
-          look: [lerp(3.6, 4.0, p), lerp(1.5, 1.0, p), 0.2],
-          fov: 28,
+          pos: [lerp(6.6, 6.2, p), lerp(3.1, 2.9, p), lerp(8.8, 8.0, p)],
+          look: [lerp(4.9, 5.1, p), lerp(1.45, 1.30, p), 0.2],
+          fov: 34,
         };
       }
       /* ── CUT ── C3b — THE REFUSAL. Framed to hold the dark term lamps and
@@ -365,9 +384,9 @@ export function s2Grade(): Scene3D {
       if (t < S.caveatCut) {
         const p = eInOut(seg(t, S.badIn, S.caveatCut));
         return {
-          pos: [lerp(1.4, 2.6, p), lerp(2.9, 2.6, p), lerp(9.6, 8.8, p)],
-          look: [lerp(0.4, 2.0, p), lerp(1.5, 1.6, p), 0.5],
-          fov: 34,
+          pos: [lerp(1.4, 3.0, p), lerp(2.9, 2.7, p), lerp(9.6, 9.2, p)],
+          look: [lerp(0.4, 2.4, p), lerp(1.5, 1.7, p), 0.5],
+          fov: 38,
         };
       }
       // ── HARD CUT ── C4 — the caveat plate. Almost still: the hold IS the
