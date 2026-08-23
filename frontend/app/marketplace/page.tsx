@@ -60,7 +60,24 @@ function Marketplace() {
     const attested = Boolean(grade && grade.scorerSigner !== "0x0000000000000000000000000000000000000000");
     const fundedInThisBook = Boolean(funding && funding[4] !== 0);
 
-    return { inv, reg, grade, status, attested, fundedInThisBook, dueDate: Number(reg?.dueDate ?? inv.dueDate) };
+    /* Is this invoice's faceAmount denominated in the book we are showing?
+       The registry is shared, so it holds both books' invoices and stores face in raw units
+       with no record of which asset they are. Rendering every row with the current book's
+       decimals made a 0.5 USDT invoice (6dp) read as "0 BOT" under BOT's 18 — a real invoice
+       displaying as zero.
+
+       Status separates the two cases without another read:
+         · funded in THIS book        → units are ours, show it
+         · Registered (awaiting funding) → no book assigned yet, and the face is what a funder
+                                           would advance here, so showing it is the point of
+                                           this page
+         · Funded/Settled/Defaulted but NOT ours → it was funded from the other book, so the
+                                           units are the other book's and any figure we print
+                                           is wrong */
+    const settledElsewhere = status !== "Registered" && status !== "None" && !fundedInThisBook;
+    const faceInThisBook = !settledElsewhere;
+
+    return { inv, reg, grade, status, attested, fundedInThisBook, faceInThisBook, dueDate: Number(reg?.dueDate ?? inv.dueDate) };
   });
 
   return (
@@ -90,7 +107,7 @@ function Marketplace() {
       )}
 
       <div className="mt-6 space-y-3">
-        {rows.map(({ inv, reg, grade, status, attested, fundedInThisBook, dueDate }) => {
+        {rows.map(({ inv, reg, grade, status, attested, fundedInThisBook, faceInThisBook, dueDate }) => {
           const face = reg?.faceAmount ?? inv.faceAmount;
           const days = daysUntil(dueDate);
           return (
@@ -113,7 +130,13 @@ function Marketplace() {
                     <div className="text-right">
                       <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Face</p>
                       <p className="font-semibold tabular-nums">
-                        {amount(face, book.decimals)} {book.symbol}
+                        {faceInThisBook ? (
+                          `${amount(face, book.decimals)} ${book.symbol}`
+                        ) : (
+                          <span className="text-muted-foreground" title={`Faced in the other book — switch books to see this amount`}>
+                            —
+                          </span>
+                        )}
                       </p>
                     </div>
                     {attested && (
@@ -138,7 +161,8 @@ function Marketplace() {
       <p className="mt-8 text-xs text-muted-foreground">
         Face amounts are shown in {book.symbol} because you are viewing the {book.label} book. An
         invoice is faced, funded and repaid in one asset and the protocol never converts between
-        them — switch books if an amount looks wrong.
+        them, so an invoice funded from the other book shows <span className="font-medium">—</span>{" "}
+        rather than a figure in the wrong unit. Switch books to see it.
       </p>
     </div>
   );
