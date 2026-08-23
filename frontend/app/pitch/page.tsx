@@ -253,7 +253,6 @@ function buildSlides(): React.ReactNode[] {
         <div className="rounded-2xl border border-border bg-card/60 p-6">
           <div className="mb-3 font-semibold text-primary">Roadmap</div>
           <ul className="space-y-2 text-sm text-muted-foreground">
-            <li>· <span className="text-foreground">Mainnet</span> — BOT Chain 677, alongside the live testnet deployment</li>
             <li>· <span className="text-foreground">A real receivable</span> with a named counterparty, behind debtor approval</li>
             <li>· Debtor acknowledgement by email + OTP — the notice-of-assignment artifact real factoring turns on</li>
             <li>· Attested scoring (GCP Confidential Space) — a key rotation, not a contract migration</li>
@@ -280,7 +279,7 @@ function buildSlides(): React.ReactNode[] {
     // 8 — The whole loop (recap + full-loop flow)
     <div key="loop">
       <SectionLabel>The whole loop</SectionLabel>
-      <h2 className="max-w-2xl font-display text-3xl font-bold tracking-tight sm:text-5xl">One loop. Every piece live on testnet.</h2>
+      <h2 className="max-w-2xl font-display text-3xl font-bold tracking-tight sm:text-5xl">One loop. Every piece live on mainnet.</h2>
       <p className="mt-4 max-w-2xl leading-relaxed text-muted-foreground">
         Private off-chain scoring, two settlement books, native-BOT deposits, senior/junior tranches, on-chain settlement and
         permissionless default — one continuous loop, and every step is a verifiable transaction today.
@@ -307,7 +306,7 @@ function buildSlides(): React.ReactNode[] {
         Private off-chain scoring · BOT and USDT books · native-BOT deposits · senior/junior tranches · on-chain settlement and
         permissionless default · source-signed input provenance.
       </p>
-      <p className="mt-6 text-lg font-semibold text-[color:var(--success,#5bbf8f)]">Every piece is live on BOT Chain testnet today.</p>
+      <p className="mt-6 text-lg font-semibold text-[color:var(--success,#5bbf8f)]">Every piece is live on BOT Chain mainnet today.</p>
       <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
         <Link href="/onboard"><Button size="lg" className="h-13 px-7 font-bold">Factor an invoice <ArrowRight className="h-4 w-4" /></Button></Link>
         <Link href="/dashboard"><Button size="lg" variant="outline" className="h-13 px-7 font-bold">Provide liquidity</Button></Link>

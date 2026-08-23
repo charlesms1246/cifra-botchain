@@ -88,50 +88,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Trust */}
-      <section className="mx-auto max-w-7xl px-4 py-20 sm:px-5">
-        <h2 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">
-          What we guarantee, and what we don&apos;t
-        </h2>
-        <p className="mt-3 max-w-2xl text-sm text-muted-foreground sm:text-base">
-          Cifra used to run its scoring inside a hardware-attested enclave. On BOT Chain it does
-          not, and the honest version of the claim is narrower. Here is the whole of it.
-        </p>
-
-        <div className="mt-8 overflow-x-auto">
-          <table className="w-full min-w-[560px] border-collapse text-sm">
-            <tbody>
-              {[
-                ["The grade came from the key registered on-chain", "yes", "verified by ecrecover in the attestation contract"],
-                ["The grade is bound to exactly one invoice", "yes", "the invoice id is inside the signed payload"],
-                ["Raw buyer data never reaches the chain", "yes", "only the grade is submitted"],
-                ["Settlement and default are honest", "yes", "directly observable on-chain — no oracle"],
-                ["The published model produced the grade", "check", "the model version and container digest are signed and recorded — pull the image and recompute"],
-                ["The operator cannot read buyer data", "no", "the service receives it over TLS. Encryption keeps it out of logs, not away from us."],
-              ].map(([claim, verdict, detail]) => (
-                <tr key={claim} className="border-b border-border align-top">
-                  <td className="py-3 pr-4 font-medium">{claim}</td>
-                  <td className="w-24 py-3 pr-4">
-                    <span
-                      className={
-                        verdict === "yes"
-                          ? "text-[color:var(--success)]"
-                          : verdict === "no"
-                            ? "text-[color:var(--destructive)]"
-                            : "text-[color:var(--warning)]"
-                      }
-                    >
-                      {verdict === "yes" ? "Guaranteed" : verdict === "no" ? "No" : "Checkable"}
-                    </span>
-                  </td>
-                  <td className="py-3 text-muted-foreground">{detail}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
       {/* Proof */}
       <section className="mx-auto max-w-7xl px-4 pb-24 sm:px-5">
         <h2 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">Verify it yourself</h2>

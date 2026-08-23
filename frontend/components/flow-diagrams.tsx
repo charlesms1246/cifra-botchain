@@ -24,7 +24,10 @@ export function PrivateScoringFlow() {
         <path d="M453 96 v-5 a7 7 0 0 1 14 0 v5" fill="none" stroke={TERRACOTTA} strokeWidth="2" />
         <rect x="452" y="96" width="16" height="12" rx="2" fill={TERRACOTTA} />
         <text x="460" y="140" textAnchor="middle" fill="#fff" fontSize="13" fontWeight="600">Scoring service</text>
-        <text x="460" y="158" textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="11">Compute Extension</text>
+        {/* "Compute Extension" was Flare's name for the TEE this used to run in. On BOT Chain
+            it is an ordinary off-chain service, so the label was not a softened claim — it was
+            the wrong one, naming a component that does not exist here. */}
+        <text x="460" y="158" textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="11">off-chain</text>
         <text x="460" y="182" textAnchor="middle" fill={TERRACOTTA} fontSize="10.5">risk model · signs grade</text>
       </g>
       <g>
@@ -51,7 +54,7 @@ export function PrivateScoringFlow() {
   );
 }
 
-// The full loop, end-to-end — every stage on BOT Chain and live on testnet (green ticks),
+// The full loop, end-to-end — every stage on BOT Chain and live on mainnet (green ticks),
 // with particles flowing through the whole pipeline.
 export function FullLoopFlow() {
   const W = 152;
@@ -86,7 +89,7 @@ export function FullLoopFlow() {
           <animateMotion dur="2s" begin={`${i * 0.5}s`} repeatCount="indefinite"><mpath href={`#seg${i}`} /></animateMotion>
         </rect>
       ))}
-      <text x="490" y="178" textAnchor="middle" fill="rgba(91,191,143,0.9)" fontSize="10.5">every step is a real on-chain transaction · live on testnet</text>
+      <text x="490" y="178" textAnchor="middle" fill="rgba(91,191,143,0.9)" fontSize="10.5">every step is a real on-chain transaction · live on mainnet</text>
     </svg>
   );
 }
