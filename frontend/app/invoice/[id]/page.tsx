@@ -2,6 +2,7 @@
 
 import { Suspense, use } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   useAccount,
   useChainId,
@@ -20,7 +21,7 @@ import {
   FUNDING_STATUS,
   REGISTRY_STATUS,
 } from "@/lib/contracts";
-import { DEPLOYMENT, SHARED } from "@/lib/books";
+import { BOOKS, DEPLOYMENT, SHARED, bookByKey } from "@/lib/books";
 import { useBook } from "@/lib/use-book";
 import { activeChain, addrUrl, txUrl } from "@/lib/chain";
 import { amount, bpsToPct, dateOf, daysUntil, fromBytes32, shortHex } from "@/lib/format";
@@ -41,6 +42,9 @@ export default function InvoicePage({ params }: { params: Promise<{ id: string }
 
 function InvoiceDetail({ id }: { id: `0x${string}` }) {
   const [book, setBook] = useBook();
+  /* Safe here: this component already sits inside the page's <Suspense> boundary, which is what
+     useSearchParams needs, and the route is dynamic so nothing is being prerendered. */
+  const bookHint = useSearchParams().get("book");
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
@@ -49,32 +53,76 @@ function InvoiceDetail({ id }: { id: `0x${string}` }) {
   const { writeContract, data: hash, isPending, error, reset } = useWriteContract();
   const { isLoading: confirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
-  const { data, refetch } = useReadContracts({
+  /* An invoice belongs to ONE book, and the registry is shared, so the book cannot be taken
+     from whatever the header happens to have selected. Reading it that way showed a real
+     0.5 USDT invoice as "0 BOT" (6-decimal units formatted with 18), left the settlement rows
+     blank because they were fetched from the other book's contracts, and — the dangerous part —
+     pointed `approve`, `payInvoice`, `markDefault` and `fundInvoice` at the wrong asset and
+     the wrong pool.
+
+     So: ask every book's controller whether it funded this invoice, and let the chain answer.
+     Only one can, because funding is what binds an invoice to a book. */
+  const { data: core, refetch: refetchCore } = useReadContracts({
     contracts: [
       { chainId: activeChain.id, address: SHARED.registry, abi: registryAbi, functionName: "getInvoice", args: [id] },
       { chainId: activeChain.id, address: SHARED.attestation, abi: attestationAbi, functionName: "gradeForInvoice", args: [id] },
-      { chainId: activeChain.id, address: book.controller, abi: controllerAbi, functionName: "fundingOf", args: [id] },
-      { chainId: activeChain.id, address: book.settlement, abi: settlementAbi, functionName: "amountDue", args: [id] },
-      { chainId: activeChain.id, address: book.settlement, abi: settlementAbi, functionName: "isDefaultable", args: [id] },
-      { chainId: activeChain.id, address: book.settlement, abi: settlementAbi, functionName: "defaultableAt", args: [id] },
-      { chainId: activeChain.id, address: book.asset, abi: erc20Abi, functionName: "allowance", args: [address ?? "0x0000000000000000000000000000000000000000", book.settlement] },
-      { chainId: activeChain.id, address: book.controller, abi: controllerAbi, functionName: "operator" },
     ],
     query: { refetchInterval: 8000 },
   });
 
-  const reg = data?.[0]?.result as
+  /* Its OWN hook, and not spread into the one above. A mapped array is not a literal tuple, so
+     wagmi widens it and then narrows `functionName` to the intersection across every ABI in the
+     call — which type-errors every entry, not just the new ones. One useReadContracts per ABI
+     is the documented way round it (ERRORS.md T27). */
+  const { data: fundings, refetch: refetchFundings } = useReadContracts({
+    contracts: BOOKS.map((b) => ({
+      chainId: activeChain.id,
+      address: b.controller,
+      abi: controllerAbi,
+      functionName: "fundingOf",
+      args: [id],
+    })),
+    query: { refetchInterval: 8000 },
+  });
+
+  const reg = core?.[0]?.result as
     | { supplier: string; buyerCommitment: string; faceAmount: bigint; dueDate: bigint; status: number }
     | undefined;
-  const grade = data?.[1]?.result as
+  const grade = core?.[1]?.result as
     | { grade: string; riskScoreBps: number; discountRateBps: number; scorerSigner: string; modelVersion: string; imageDigest: string }
     | undefined;
-  const funding = data?.[2]?.result as readonly [string, bigint, bigint, bigint, number] | undefined;
-  const due = (data?.[3]?.result as bigint | undefined) ?? 0n;
-  const defaultable = (data?.[4]?.result as boolean | undefined) ?? false;
-  const defaultableAt = (data?.[5]?.result as bigint | undefined) ?? 0n;
-  const allowance = (data?.[6]?.result as bigint | undefined) ?? 0n;
-  const operator = data?.[7]?.result as string | undefined;
+
+  const fundedAt = BOOKS.findIndex((_, i) => {
+    const f = fundings?.[i]?.result as readonly [string, bigint, bigint, bigint, number] | undefined;
+    return Boolean(f && f[4] !== 0);
+  });
+  /* Unfunded invoices genuinely have no book yet — nothing on chain binds one until funding.
+     `/onboard` already links here with ?book=<key>, which was being ignored; honouring it means
+     an invoice opened straight after registration shows the units it was written in even if the
+     header has since been switched. Falls back to the current selection, which is the book a
+     funder would be about to fund it from. */
+  const owningBook = fundedAt >= 0 ? BOOKS[fundedAt] : bookHint ? bookByKey(bookHint) : book;
+  const funding = fundedAt >= 0
+    ? (fundings?.[fundedAt]?.result as readonly [string, bigint, bigint, bigint, number] | undefined)
+    : undefined;
+
+  const { data: bookData, refetch: refetchBook } = useReadContracts({
+    contracts: [
+      { chainId: activeChain.id, address: owningBook.settlement, abi: settlementAbi, functionName: "amountDue", args: [id] },
+      { chainId: activeChain.id, address: owningBook.settlement, abi: settlementAbi, functionName: "isDefaultable", args: [id] },
+      { chainId: activeChain.id, address: owningBook.settlement, abi: settlementAbi, functionName: "defaultableAt", args: [id] },
+      { chainId: activeChain.id, address: owningBook.asset, abi: erc20Abi, functionName: "allowance", args: [address ?? "0x0000000000000000000000000000000000000000", owningBook.settlement] },
+      { chainId: activeChain.id, address: owningBook.controller, abi: controllerAbi, functionName: "operator" },
+    ],
+    query: { refetchInterval: 8000 },
+  });
+
+  const due = (bookData?.[0]?.result as bigint | undefined) ?? 0n;
+  const defaultable = (bookData?.[1]?.result as boolean | undefined) ?? false;
+  const defaultableAt = (bookData?.[2]?.result as bigint | undefined) ?? 0n;
+  const allowance = (bookData?.[3]?.result as bigint | undefined) ?? 0n;
+  const operator = bookData?.[4]?.result as string | undefined;
+  const refetch = () => { void refetchCore(); void refetchFundings(); void refetchBook(); };
 
   if (!reg || reg.status === 0) {
     return (
@@ -122,7 +170,7 @@ function InvoiceDetail({ id }: { id: `0x${string}` }) {
         <Card>
           <CardTitle>Invoice</CardTitle>
           <dl className="mt-4 space-y-3 text-sm">
-            <Row label="Face amount" value={`${amount(reg.faceAmount, book.decimals)} ${book.symbol}`} />
+            <Row label="Face amount" value={`${amount(reg.faceAmount, owningBook.decimals)} ${owningBook.symbol}`} />
             <Row label="Supplier" value={<Ext href={addrUrl(reg.supplier)}>{shortHex(reg.supplier, 6)}</Ext>} />
             <Row
               label="Buyer"
@@ -132,7 +180,7 @@ function InvoiceDetail({ id }: { id: `0x${string}` }) {
             <Row label="Registry status" value={status} />
             <Row label={`Funding (${book.label})`} value={fundingStatus} />
             {funding && funding[4] !== 0 && (
-              <Row label="Principal advanced" value={`${amount(funding[2], book.decimals)} ${book.symbol}`} />
+              <Row label="Principal advanced" value={`${amount(funding[2], owningBook.decimals)} ${owningBook.symbol}`} />
             )}
           </dl>
         </Card>
@@ -168,7 +216,7 @@ function InvoiceDetail({ id }: { id: `0x${string}` }) {
           <p className="mt-1 text-sm text-muted-foreground">
             {/* Explicit {" "}: SWC sometimes drops a space adjacent to an expression when the
                 surrounding text wraps, which silently rendered "USDTand". */}
-            The buyer repays face value in {book.symbol}{" "}
+            The buyer repays face value in {owningBook.symbol}{" "}
             and the contract observes the payment itself — no oracle, no proof, no reserve.
             Anyone may settle on the buyer&apos;s behalf.
           </p>
@@ -176,7 +224,7 @@ function InvoiceDetail({ id }: { id: `0x${string}` }) {
             <div className="flex-1 rounded-xl border border-border bg-black/20 p-3">
               <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Amount due</p>
               <p className="text-lg font-semibold tabular-nums">
-                {amount(due, book.decimals)} {book.symbol}
+                {amount(due, owningBook.decimals)} {owningBook.symbol}
               </p>
             </div>
             {wrongChain ? (
@@ -190,14 +238,14 @@ function InvoiceDetail({ id }: { id: `0x${string}` }) {
                 onClick={() => {
                   reset();
                   if (needsApproval) {
-                    writeContract({ chainId: activeChain.id, address: book.asset, abi: erc20Abi, functionName: "approve", args: [book.settlement, maxUint256] });
+                    writeContract({ chainId: activeChain.id, address: owningBook.asset, abi: erc20Abi, functionName: "approve", args: [owningBook.settlement, maxUint256] });
                   } else {
-                    writeContract({ chainId: activeChain.id, address: book.settlement, abi: settlementAbi, functionName: "payInvoice", args: [id] });
+                    writeContract({ chainId: activeChain.id, address: owningBook.settlement, abi: settlementAbi, functionName: "payInvoice", args: [id] });
                   }
                   after();
                 }}
               >
-                {isPending || confirming ? "Confirming…" : needsApproval ? `Approve ${book.symbol}` : "Pay invoice"}
+                {isPending || confirming ? "Confirming…" : needsApproval ? `Approve ${owningBook.symbol}` : "Pay invoice"}
               </Button>
             )}
           </div>
@@ -214,7 +262,7 @@ function InvoiceDetail({ id }: { id: `0x${string}` }) {
               disabled={!isConnected || !defaultable || isPending || confirming || wrongChain}
               onClick={() => {
                 reset();
-                writeContract({ chainId: activeChain.id, address: book.settlement, abi: settlementAbi, functionName: "markDefault", args: [id] });
+                writeContract({ chainId: activeChain.id, address: owningBook.settlement, abi: settlementAbi, functionName: "markDefault", args: [id] });
                 after();
               }}
             >
@@ -236,7 +284,7 @@ function InvoiceDetail({ id }: { id: `0x${string}` }) {
             disabled={isPending || confirming || wrongChain}
             onClick={() => {
               reset();
-              writeContract({ chainId: activeChain.id, address: book.controller, abi: controllerAbi, functionName: "fundInvoice", args: [id] });
+              writeContract({ chainId: activeChain.id, address: owningBook.controller, abi: controllerAbi, functionName: "fundInvoice", args: [id] });
               after();
             }}
           >

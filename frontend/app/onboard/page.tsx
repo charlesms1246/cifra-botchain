@@ -96,6 +96,11 @@ function Onboard() {
   // re-render to a different answer for the same props.
   const [todayIso] = useState(() => new Date().toISOString().slice(0, 10));
   const [invoiceId, setInvoiceId] = useState<Hex | null>(null);
+  /* Pinned at registration, not read from the header afterwards. `face` was computed in this
+     book's decimals and the invoice is written in its units, so if the funder switches books
+     between registering and following the link, the link has to still carry the book it was
+     actually written in — the chain does not record one until the invoice is funded. */
+  const [registeredBook, setRegisteredBook] = useState<string | null>(null);
 
   const { writeContractAsync, isPending, error, reset } = useWriteContract();
   const [hash, setHash] = useState<Hex | undefined>();
@@ -141,6 +146,7 @@ function Onboard() {
     });
     setHash(tx);
     setInvoiceId(predicted);
+    setRegisteredBook(book.key);
   };
 
   return (
@@ -261,7 +267,7 @@ function Onboard() {
           <CardTitle>Registered</CardTitle>
           <p className="mt-2 break-all font-mono text-xs">{invoiceId}</p>
           <div className="mt-4 flex flex-wrap gap-3">
-            <Link href={`/invoice/${invoiceId}?book=${book.key}`}>
+            <Link href={`/invoice/${invoiceId}?book=${registeredBook ?? book.key}`}>
               <Button size="sm">View invoice</Button>
             </Link>
             {hash && (

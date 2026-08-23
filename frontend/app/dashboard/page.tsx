@@ -112,7 +112,17 @@ function Dashboard() {
 
       <div className="mt-8 grid gap-4 lg:grid-cols-2">
         {tranches(book).map((t) => (
-          <TrancheCard key={t.key} book={book} tranche={t} paused={paused} />
+          /* Keyed by BOOK as well as tranche. Switching books changes `book` but kept the
+             same component instance, so every piece of card state survived the switch —
+             including `useNative`, which is seeded from `book.isNative` and therefore stayed
+             true on USDT. That showed the funder their native BOT balance under a USDT
+             deposit box, and worse: `needsApproval` is `!useNative`, so the approve step was
+             skipped and `submit()` went straight to `deposit()` with no allowance.
+
+             The book is part of this card's identity, so it belongs in the key. Remounting
+             also clears the typed amount and any pending tx, which is what you want — an
+             amount entered for BOT should not carry into USDT. */
+          <TrancheCard key={`${book.key}-${t.key}`} book={book} tranche={t} paused={paused} />
         ))}
       </div>
     </div>
